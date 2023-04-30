@@ -21,6 +21,9 @@ type server struct {
 }
 
 func (s *server) GetTimestamp(ctx context.Context, in *timestamppb.Timestamp) (*timestamppb.Timestamp, error) {
+	if *port == 50053 {
+		time.Sleep(2 * time.Second)
+	}
 	log.Printf("Received: %s", in.AsTime().Format("2006-01-02 15:04:05.999999999 -0700 MST"))
 	return &timestamppb.Timestamp{
 		Seconds: time.Now().Unix(),
