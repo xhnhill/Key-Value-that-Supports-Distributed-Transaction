@@ -29,6 +29,8 @@ message Trans{
   repeated ReadOp reads = 2;
   repeated WriteOp writes =3;
   string id = 4;
+  TranStatus st = 5;
+  //TODO if deps should be here
 
 }
 message PreAcceptReq{
@@ -68,6 +70,13 @@ message RecoverResp{
 //Tick Msg is used to update time and calculate for timeout
 message TickMsg{
   google.protobuf.Timestamp timeStamp =1;
+}
+enum TranStatus{
+  New = 0;
+  PreAccepted = 1;
+  Accepted = 2;
+  Commited = 3;
+  Applied = 4;
 }
 enum MsgType{
   PreAccept = 0;

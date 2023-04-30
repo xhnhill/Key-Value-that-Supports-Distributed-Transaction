@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// TODO config struct
+type Config struct {
+}
 type Transaction struct {
 	in_trans pb.Trans
 }
@@ -21,8 +24,37 @@ type StateMachine struct {
 	id      int32         // Actual node will map the Id to actual address
 	m_trans []Transaction // Managed transactions, because this state machine is its coordinator
 	//TODO if need optimization of its data structure
-	w_trans []Transaction // witnessed transactions
+	//TODO maybe a heap here?
+	w_trans []Transaction // witnessed transactions, m_trans is a subset of this slice
+	//a map here, which key is the transaction id, value should be the transaction
+	//Corresponding event will come here to uodate status
+
+	//Ballot number
+	ballot int32
+	//TODO an array, size of 2, label the range of shard
 }
+
+// Get keys of the transaction
+// TODO output set
+func (trans *Transaction) getKeys() {
+
+}
+
+// Generate conflict trans
+// Judge the return
+func (st *StateMachine) getConflicts(trans *Transaction) {
+
+}
+
+//TODO a function to union the deps
+
+//TODO Read function, read actual values from the data base
+
+//TODO Write function, write actual values from the database
+
+//TODO Detect failure, send heartbeat
+
+//TODO basic function, Compare timestamp of the transaction
 
 func (st *StateMachine) generateTimestamp() *pb.TransTimestamp {
 	timeNow := time.Now()

@@ -122,6 +122,8 @@ func createClients(nodes []Node) []Node {
 	return nodes
 }
 
+//TODO function which is responsible for send out gRPC request
+
 // TODO close the connections
 func main() {
 	flag.Parse()
