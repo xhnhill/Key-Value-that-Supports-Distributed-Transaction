@@ -41,7 +41,30 @@ message PreAcceptResp{
   Deps deps = 2;
 }
 
+message AcceptReq{
 
+}
+message AcceptResp{
+
+}
+message CommitReq{
+
+}
+message ReadReq{
+
+}
+message ReadResp{
+
+}
+message ApplyReq{
+
+}
+message RecoverReq{
+  
+}
+message RecoverResp{
+
+}
 service Coordinate {
   rpc PreAccept(PreAcceptReq) returns (PreAcceptResp) {}
 
