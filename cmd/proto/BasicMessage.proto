@@ -90,10 +90,14 @@ enum RespType{
 message Request{
   ReqType type = 1;
   bytes data = 2;
+  int32 from = 3;
+  int32 to = 4;
 }
 message Response{
   ReqType type = 1;
   bytes data = 2;
+  int32 from = 3;
+  int32 to = 4;
 }
 service Coordinate {
   rpc sendReq(Request) returns (Response) {}
