@@ -2,6 +2,9 @@ package Replica
 
 import (
 	pb "Distributed_Key_Value_Store/cmd/Primitive"
+	"crypto/sha256"
+	"fmt"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
 	"time"
@@ -33,20 +36,32 @@ func (st *StateMachine) generateTimestamp() *pb.TransTimestamp {
 	}
 	return t0
 }
-func (st *StateMachine) generateTransId(transTimestamp *pb.TransTimestamp) *string {
-
+func (st *StateMachine) generateTransId(t *pb.TransTimestamp) *string {
+	data, _ := proto.Marshal(t)
+	hash := sha256.Sum256(data)
+	hashString := fmt.Sprintf("%x", hash)
+	return &hashString
 }
 
-func (st *StateMachine) sendPreAccept(tars []int, trans *pb.Trans) []*pb.Message {
+func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Message {
+	// The transaction received doesn't have t0 and id
 	var msgs []*pb.Message
 	t0 := st.generateTimestamp()
+	trans.Id = *st.generateTransId(t0)
 	preAccept := pb.PreAcceptReq{
 		Trans: trans,
 		T0:    t0,
 	}
+	msgData, _ := proto.Marshal(&preAccept)
 	for i := 0; i < len(tars); i++ {
-
+		msgs = append(msgs, &pb.Message{
+			Type: pb.MsgType_PreAccept,
+			Data: msgData,
+			From: st.id,
+			To:   tars[i],
+		})
 	}
+	return msgs
 }
 
 func (st *StateMachine) executeReq(req *pb.Message) []*pb.Message {
