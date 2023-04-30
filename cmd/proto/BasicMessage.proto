@@ -60,12 +60,42 @@ message ApplyReq{
 
 }
 message RecoverReq{
-  
+
 }
 message RecoverResp{
 
 }
+//Tick Msg is used to update time and calculate for timeout
+message TickMsg{
+
+}
+enum ReqType{
+  PreAccept = 0;
+  Accept = 1;
+  Commit = 2;
+  Read = 3;
+  Apply = 4;
+  Recover = 5;
+  Tick = 6;
+}
+
+enum RespType{
+  PreAcceptOk = 0;
+  AcceptOk = 1;
+  CommitOk = 2;
+  ReadOk = 3;
+  ApplyOk = 4;
+  RecoverOk = 5;
+}
+message Request{
+  ReqType type = 1;
+  bytes data = 2;
+}
+message Response{
+  ReqType type = 1;
+  bytes data = 2;
+}
 service Coordinate {
-  rpc PreAccept(PreAcceptReq) returns (PreAcceptResp) {}
+  rpc sendReq(Request) returns (Response) {}
 
 }
