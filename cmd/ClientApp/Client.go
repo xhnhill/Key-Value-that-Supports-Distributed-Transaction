@@ -35,6 +35,6 @@ func main() {
 	if err != nil {
 		log.Fatalf(" Could not process: %v", err)
 	}
-	log.Printf("Greeting: %s", r.GetMessage())
+	log.Printf("Greeting: %s", r.AsTime().Format("2006-01-02 15:04:05.999999999 -0700 MST"))
 
 }
