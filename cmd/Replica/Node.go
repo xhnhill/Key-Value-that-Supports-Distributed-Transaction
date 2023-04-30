@@ -1,22 +1,39 @@
 package Replica
 
 import (
+	pb "Distributed_Key_Value_Store/cmd/Primitive"
 	"bufio"
 	"flag"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
 	path       = flag.String("path", "config", "the path to config file")
 	selfConfig = flag.String("self", "self", "the path to self configuration file")
+	mode       = flag.Bool("mode", false, "True indicates in the debug mode")
 )
 
 type Node struct {
 	nodeId int
 	addr   string
+	client pb.CoordinateClient
+}
+type Server struct {
+	node  *Node
+	inCh  chan pb.Request
+	outCh chan pb.Response
+}
+
+func connectCluster() {
+
 }
 
 func readNodeConfig() (int, string, int, error) {
@@ -68,6 +85,44 @@ func readClusterConfig() ([]Node, error) {
 	}
 	return nodes, nil
 }
+
+func startTicker(inCh chan pb.Request) *time.Ticker {
+	ticker := time.NewTicker(time.Second)
+
+	for {
+		select {
+		case <-ticker.C:
+			tickMsg := pb.TickMsg{
+				TimeStamp: &timestamppb.Timestamp{
+					Seconds: time.Now().Unix(),
+					Nanos:   int32(time.Now().Nanosecond()),
+				},
+			}
+			data, _ := proto.Marshal(&tickMsg)
+			req := pb.Request{
+				Type: pb.ReqType_Tick,
+				Data: data,
+			}
+			inCh <- req
+		}
+	}
+
+}
+
+func createClients(nodes []Node) []Node {
+	for i := 0; i < len(nodes); i++ {
+		conn, err := grpc.Dial(nodes[i].addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatalf("Node %d may fail, could not connect", nodes[i].nodeId)
+		} else {
+			nodes[i].client = pb.NewCoordinateClient(conn)
+		}
+
+	}
+	return nodes
+}
+
+// TODO close the connections
 func main() {
 	flag.Parse()
 	nodeId, ip, port, err := readNodeConfig()
@@ -84,5 +139,15 @@ func main() {
 	if err != nil {
 		return
 	}
+	localServer := &Server{
+		node:  cur,
+		inCh:  make(chan pb.Request, 0),
+		outCh: make(chan pb.Response, 0),
+	}
+	// Start the timer here
+	if !*mode {
+		go startTicker(localServer.inCh)
+	}
+	nodes = createClients(nodes)
 
 }

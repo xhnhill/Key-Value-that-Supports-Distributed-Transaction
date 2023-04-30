@@ -67,7 +67,7 @@ message RecoverResp{
 }
 //Tick Msg is used to update time and calculate for timeout
 message TickMsg{
-
+  google.protobuf.Timestamp timeStamp =1;
 }
 enum ReqType{
   PreAccept = 0;
