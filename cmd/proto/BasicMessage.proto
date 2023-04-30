@@ -3,3 +3,46 @@ syntax = "proto3";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "cmd/Primitive";
+
+message TransTimestamp{
+  google.protobuf.Timestamp timeStamp =1;
+  int32 seq = 2;
+  int32 id = 3;
+}
+message ReadOp{
+  string key = 1;
+
+}
+// TODO Add more complex operation to WriteOp
+message WriteOp{
+  string key =1;
+}
+//TODO check if more fields are needed
+message Deps{
+  //The id of conflicting transactions
+  repeated string ids = 1;
+}
+//TODO design reads part and writes
+message Trans{
+  //TODO Check the specific meaning of this timestamp
+  TransTimestamp timestamp = 1;
+  repeated ReadOp reads = 2;
+  repeated WriteOp writes =3;
+  string id = 4;
+
+}
+message PreAcceptReq{
+  Trans trans = 1;
+  TransTimestamp t0 =2;
+}
+
+message PreAcceptResp{
+  TransTimestamp t = 1;
+  Deps deps = 2;
+}
+
+
+service Coordinate {
+  rpc PreAccept(PreAcceptReq) returns (PreAcceptResp) {}
+
+}
