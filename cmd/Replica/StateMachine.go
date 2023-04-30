@@ -19,26 +19,30 @@ type StateMachine struct {
 	w_trans []Transaction // witnessed transactions
 }
 
-func (st *StateMachine) executeReq(req *pb.Request) *pb.Response {
+func (st *StateMachine) sendPreAccept(tars []int) []*pb.Message {
+
+}
+
+func (st *StateMachine) executeReq(req *pb.Message) []*pb.Message {
 	switch req.Type {
-	case pb.ReqType_PreAccept:
+	case pb.MsgType_PreAccept:
 		log.Printf("Receive req")
-	case pb.ReqType_Accept:
+	case pb.MsgType_Accept:
 		log.Printf("Receive req")
-	case pb.ReqType_Commit:
+	case pb.MsgType_Commit:
 		log.Printf("Receive req")
-	case pb.ReqType_Read:
+	case pb.MsgType_Read:
 		log.Printf("Receive req")
-	case pb.ReqType_Apply:
+	case pb.MsgType_Apply:
 		log.Printf("Receive req")
-	case pb.ReqType_Recover:
+	case pb.MsgType_Recover:
 		log.Printf("Receive req")
-	case pb.ReqType_Tick:
+	case pb.MsgType_Tick:
 		log.Printf("Receive req")
 	}
 }
 
-func (st *StateMachine) mainLoop(inCh chan *pb.Request, outCh chan *pb.Response) {
+func (st *StateMachine) mainLoop(inCh chan *pb.Message, outCh chan *pb.Message) {
 	for {
 		val, ok := <-inCh
 		if !ok {

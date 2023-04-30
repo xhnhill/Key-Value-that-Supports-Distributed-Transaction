@@ -22,7 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CoordinateClient interface {
-	SendReq(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error)
+	SendReq(ctx context.Context, in *Message, opts ...grpc.CallOption) (*Message, error)
 }
 
 type coordinateClient struct {
@@ -33,8 +33,8 @@ func NewCoordinateClient(cc grpc.ClientConnInterface) CoordinateClient {
 	return &coordinateClient{cc}
 }
 
-func (c *coordinateClient) SendReq(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error) {
-	out := new(Response)
+func (c *coordinateClient) SendReq(ctx context.Context, in *Message, opts ...grpc.CallOption) (*Message, error) {
+	out := new(Message)
 	err := c.cc.Invoke(ctx, "/Coordinate/sendReq", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (c *coordinateClient) SendReq(ctx context.Context, in *Request, opts ...grp
 // All implementations must embed UnimplementedCoordinateServer
 // for forward compatibility
 type CoordinateServer interface {
-	SendReq(context.Context, *Request) (*Response, error)
+	SendReq(context.Context, *Message) (*Message, error)
 	mustEmbedUnimplementedCoordinateServer()
 }
 
@@ -54,7 +54,7 @@ type CoordinateServer interface {
 type UnimplementedCoordinateServer struct {
 }
 
-func (UnimplementedCoordinateServer) SendReq(context.Context, *Request) (*Response, error) {
+func (UnimplementedCoordinateServer) SendReq(context.Context, *Message) (*Message, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendReq not implemented")
 }
 func (UnimplementedCoordinateServer) mustEmbedUnimplementedCoordinateServer() {}
@@ -71,7 +71,7 @@ func RegisterCoordinateServer(s grpc.ServiceRegistrar, srv CoordinateServer) {
 }
 
 func _Coordinate_SendReq_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Request)
+	in := new(Message)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func _Coordinate_SendReq_Handler(srv interface{}, ctx context.Context, dec func(
 		FullMethod: "/Coordinate/sendReq",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CoordinateServer).SendReq(ctx, req.(*Request))
+		return srv.(CoordinateServer).SendReq(ctx, req.(*Message))
 	}
 	return interceptor(ctx, in, info, handler)
 }

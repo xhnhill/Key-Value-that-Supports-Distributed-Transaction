@@ -21,123 +21,83 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type ReqType int32
+type MsgType int32
 
 const (
-	ReqType_PreAccept ReqType = 0
-	ReqType_Accept    ReqType = 1
-	ReqType_Commit    ReqType = 2
-	ReqType_Read      ReqType = 3
-	ReqType_Apply     ReqType = 4
-	ReqType_Recover   ReqType = 5
-	ReqType_Tick      ReqType = 6
+	MsgType_PreAccept   MsgType = 0
+	MsgType_Accept      MsgType = 1
+	MsgType_Commit      MsgType = 2
+	MsgType_Read        MsgType = 3
+	MsgType_Apply       MsgType = 4
+	MsgType_Recover     MsgType = 5
+	MsgType_Tick        MsgType = 6
+	MsgType_PreAcceptOk MsgType = 7
+	MsgType_AcceptOk    MsgType = 8
+	MsgType_CommitOk    MsgType = 9
+	MsgType_ReadOk      MsgType = 10
+	MsgType_ApplyOk     MsgType = 11
+	MsgType_RecoverOk   MsgType = 12
 )
 
-// Enum value maps for ReqType.
+// Enum value maps for MsgType.
 var (
-	ReqType_name = map[int32]string{
-		0: "PreAccept",
-		1: "Accept",
-		2: "Commit",
-		3: "Read",
-		4: "Apply",
-		5: "Recover",
-		6: "Tick",
+	MsgType_name = map[int32]string{
+		0:  "PreAccept",
+		1:  "Accept",
+		2:  "Commit",
+		3:  "Read",
+		4:  "Apply",
+		5:  "Recover",
+		6:  "Tick",
+		7:  "PreAcceptOk",
+		8:  "AcceptOk",
+		9:  "CommitOk",
+		10: "ReadOk",
+		11: "ApplyOk",
+		12: "RecoverOk",
 	}
-	ReqType_value = map[string]int32{
-		"PreAccept": 0,
-		"Accept":    1,
-		"Commit":    2,
-		"Read":      3,
-		"Apply":     4,
-		"Recover":   5,
-		"Tick":      6,
+	MsgType_value = map[string]int32{
+		"PreAccept":   0,
+		"Accept":      1,
+		"Commit":      2,
+		"Read":        3,
+		"Apply":       4,
+		"Recover":     5,
+		"Tick":        6,
+		"PreAcceptOk": 7,
+		"AcceptOk":    8,
+		"CommitOk":    9,
+		"ReadOk":      10,
+		"ApplyOk":     11,
+		"RecoverOk":   12,
 	}
 )
 
-func (x ReqType) Enum() *ReqType {
-	p := new(ReqType)
+func (x MsgType) Enum() *MsgType {
+	p := new(MsgType)
 	*p = x
 	return p
 }
 
-func (x ReqType) String() string {
+func (x MsgType) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (ReqType) Descriptor() protoreflect.EnumDescriptor {
+func (MsgType) Descriptor() protoreflect.EnumDescriptor {
 	return file_cmd_proto_BasicMessage_proto_enumTypes[0].Descriptor()
 }
 
-func (ReqType) Type() protoreflect.EnumType {
+func (MsgType) Type() protoreflect.EnumType {
 	return &file_cmd_proto_BasicMessage_proto_enumTypes[0]
 }
 
-func (x ReqType) Number() protoreflect.EnumNumber {
+func (x MsgType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use ReqType.Descriptor instead.
-func (ReqType) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use MsgType.Descriptor instead.
+func (MsgType) EnumDescriptor() ([]byte, []int) {
 	return file_cmd_proto_BasicMessage_proto_rawDescGZIP(), []int{0}
-}
-
-type RespType int32
-
-const (
-	RespType_PreAcceptOk RespType = 0
-	RespType_AcceptOk    RespType = 1
-	RespType_CommitOk    RespType = 2
-	RespType_ReadOk      RespType = 3
-	RespType_ApplyOk     RespType = 4
-	RespType_RecoverOk   RespType = 5
-)
-
-// Enum value maps for RespType.
-var (
-	RespType_name = map[int32]string{
-		0: "PreAcceptOk",
-		1: "AcceptOk",
-		2: "CommitOk",
-		3: "ReadOk",
-		4: "ApplyOk",
-		5: "RecoverOk",
-	}
-	RespType_value = map[string]int32{
-		"PreAcceptOk": 0,
-		"AcceptOk":    1,
-		"CommitOk":    2,
-		"ReadOk":      3,
-		"ApplyOk":     4,
-		"RecoverOk":   5,
-	}
-)
-
-func (x RespType) Enum() *RespType {
-	p := new(RespType)
-	*p = x
-	return p
-}
-
-func (x RespType) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (RespType) Descriptor() protoreflect.EnumDescriptor {
-	return file_cmd_proto_BasicMessage_proto_enumTypes[1].Descriptor()
-}
-
-func (RespType) Type() protoreflect.EnumType {
-	return &file_cmd_proto_BasicMessage_proto_enumTypes[1]
-}
-
-func (x RespType) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use RespType.Descriptor instead.
-func (RespType) EnumDescriptor() ([]byte, []int) {
-	return file_cmd_proto_BasicMessage_proto_rawDescGZIP(), []int{1}
 }
 
 type TransTimestamp struct {
@@ -882,17 +842,19 @@ func (x *TickMsg) GetTimeStamp() *timestamppb.Timestamp {
 	return nil
 }
 
-type Request struct {
+type Message struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Type ReqType `protobuf:"varint,1,opt,name=type,proto3,enum=ReqType" json:"type,omitempty"`
+	Type MsgType `protobuf:"varint,1,opt,name=type,proto3,enum=MsgType" json:"type,omitempty"`
 	Data []byte  `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	From int32   `protobuf:"varint,3,opt,name=from,proto3" json:"from,omitempty"`
+	To   int32   `protobuf:"varint,4,opt,name=to,proto3" json:"to,omitempty"`
 }
 
-func (x *Request) Reset() {
-	*x = Request{}
+func (x *Message) Reset() {
+	*x = Message{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_cmd_proto_BasicMessage_proto_msgTypes[16]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -900,13 +862,13 @@ func (x *Request) Reset() {
 	}
 }
 
-func (x *Request) String() string {
+func (x *Message) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Request) ProtoMessage() {}
+func (*Message) ProtoMessage() {}
 
-func (x *Request) ProtoReflect() protoreflect.Message {
+func (x *Message) ProtoReflect() protoreflect.Message {
 	mi := &file_cmd_proto_BasicMessage_proto_msgTypes[16]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -918,78 +880,37 @@ func (x *Request) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Request.ProtoReflect.Descriptor instead.
-func (*Request) Descriptor() ([]byte, []int) {
+// Deprecated: Use Message.ProtoReflect.Descriptor instead.
+func (*Message) Descriptor() ([]byte, []int) {
 	return file_cmd_proto_BasicMessage_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *Request) GetType() ReqType {
+func (x *Message) GetType() MsgType {
 	if x != nil {
 		return x.Type
 	}
-	return ReqType_PreAccept
+	return MsgType_PreAccept
 }
 
-func (x *Request) GetData() []byte {
+func (x *Message) GetData() []byte {
 	if x != nil {
 		return x.Data
 	}
 	return nil
 }
 
-type Response struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Type ReqType `protobuf:"varint,1,opt,name=type,proto3,enum=ReqType" json:"type,omitempty"`
-	Data []byte  `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
-}
-
-func (x *Response) Reset() {
-	*x = Response{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_cmd_proto_BasicMessage_proto_msgTypes[17]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *Response) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Response) ProtoMessage() {}
-
-func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_cmd_proto_BasicMessage_proto_msgTypes[17]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Response.ProtoReflect.Descriptor instead.
-func (*Response) Descriptor() ([]byte, []int) {
-	return file_cmd_proto_BasicMessage_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *Response) GetType() ReqType {
+func (x *Message) GetFrom() int32 {
 	if x != nil {
-		return x.Type
+		return x.From
 	}
-	return ReqType_PreAccept
+	return 0
 }
 
-func (x *Response) GetData() []byte {
+func (x *Message) GetTo() int32 {
 	if x != nil {
-		return x.Data
+		return x.To
 	}
-	return nil
+	return 0
 }
 
 var File_cmd_proto_BasicMessage_proto protoreflect.FileDescriptor
@@ -1040,31 +961,28 @@ var file_cmd_proto_BasicMessage_proto_rawDesc = []byte{
 	0x74, 0x61, 0x6d, 0x70, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f,
 	0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69, 0x6d,
 	0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x09, 0x74, 0x69, 0x6d, 0x65, 0x53, 0x74, 0x61, 0x6d,
-	0x70, 0x22, 0x3b, 0x0a, 0x07, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x1c, 0x0a, 0x04,
-	0x74, 0x79, 0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x08, 0x2e, 0x52, 0x65, 0x71,
+	0x70, 0x22, 0x5f, 0x0a, 0x07, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x12, 0x1c, 0x0a, 0x04,
+	0x74, 0x79, 0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x08, 0x2e, 0x4d, 0x73, 0x67,
 	0x54, 0x79, 0x70, 0x65, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x64, 0x61,
-	0x74, 0x61, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x64, 0x61, 0x74, 0x61, 0x22, 0x3c,
-	0x0a, 0x08, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x1c, 0x0a, 0x04, 0x74, 0x79,
-	0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x08, 0x2e, 0x52, 0x65, 0x71, 0x54, 0x79,
-	0x70, 0x65, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x64, 0x61, 0x74, 0x61,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x64, 0x61, 0x74, 0x61, 0x2a, 0x5c, 0x0a, 0x07,
-	0x52, 0x65, 0x71, 0x54, 0x79, 0x70, 0x65, 0x12, 0x0d, 0x0a, 0x09, 0x50, 0x72, 0x65, 0x41, 0x63,
-	0x63, 0x65, 0x70, 0x74, 0x10, 0x00, 0x12, 0x0a, 0x0a, 0x06, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74,
-	0x10, 0x01, 0x12, 0x0a, 0x0a, 0x06, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x10, 0x02, 0x12, 0x08,
-	0x0a, 0x04, 0x52, 0x65, 0x61, 0x64, 0x10, 0x03, 0x12, 0x09, 0x0a, 0x05, 0x41, 0x70, 0x70, 0x6c,
-	0x79, 0x10, 0x04, 0x12, 0x0b, 0x0a, 0x07, 0x52, 0x65, 0x63, 0x6f, 0x76, 0x65, 0x72, 0x10, 0x05,
-	0x12, 0x08, 0x0a, 0x04, 0x54, 0x69, 0x63, 0x6b, 0x10, 0x06, 0x2a, 0x5f, 0x0a, 0x08, 0x52, 0x65,
-	0x73, 0x70, 0x54, 0x79, 0x70, 0x65, 0x12, 0x0f, 0x0a, 0x0b, 0x50, 0x72, 0x65, 0x41, 0x63, 0x63,
-	0x65, 0x70, 0x74, 0x4f, 0x6b, 0x10, 0x00, 0x12, 0x0c, 0x0a, 0x08, 0x41, 0x63, 0x63, 0x65, 0x70,
-	0x74, 0x4f, 0x6b, 0x10, 0x01, 0x12, 0x0c, 0x0a, 0x08, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x4f,
-	0x6b, 0x10, 0x02, 0x12, 0x0a, 0x0a, 0x06, 0x52, 0x65, 0x61, 0x64, 0x4f, 0x6b, 0x10, 0x03, 0x12,
-	0x0b, 0x0a, 0x07, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x4f, 0x6b, 0x10, 0x04, 0x12, 0x0d, 0x0a, 0x09,
-	0x52, 0x65, 0x63, 0x6f, 0x76, 0x65, 0x72, 0x4f, 0x6b, 0x10, 0x05, 0x32, 0x2e, 0x0a, 0x0a, 0x43,
-	0x6f, 0x6f, 0x72, 0x64, 0x69, 0x6e, 0x61, 0x74, 0x65, 0x12, 0x20, 0x0a, 0x07, 0x73, 0x65, 0x6e,
-	0x64, 0x52, 0x65, 0x71, 0x12, 0x08, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x09,
-	0x2e, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x42, 0x0f, 0x5a, 0x0d, 0x63,
-	0x6d, 0x64, 0x2f, 0x50, 0x72, 0x69, 0x6d, 0x69, 0x74, 0x69, 0x76, 0x65, 0x62, 0x06, 0x70, 0x72,
-	0x6f, 0x74, 0x6f, 0x33,
+	0x74, 0x61, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x64, 0x61, 0x74, 0x61, 0x12, 0x12,
+	0x0a, 0x04, 0x66, 0x72, 0x6f, 0x6d, 0x18, 0x03, 0x20, 0x01, 0x28, 0x05, 0x52, 0x04, 0x66, 0x72,
+	0x6f, 0x6d, 0x12, 0x0e, 0x0a, 0x02, 0x74, 0x6f, 0x18, 0x04, 0x20, 0x01, 0x28, 0x05, 0x52, 0x02,
+	0x74, 0x6f, 0x2a, 0xb1, 0x01, 0x0a, 0x07, 0x4d, 0x73, 0x67, 0x54, 0x79, 0x70, 0x65, 0x12, 0x0d,
+	0x0a, 0x09, 0x50, 0x72, 0x65, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x10, 0x00, 0x12, 0x0a, 0x0a,
+	0x06, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x10, 0x01, 0x12, 0x0a, 0x0a, 0x06, 0x43, 0x6f, 0x6d,
+	0x6d, 0x69, 0x74, 0x10, 0x02, 0x12, 0x08, 0x0a, 0x04, 0x52, 0x65, 0x61, 0x64, 0x10, 0x03, 0x12,
+	0x09, 0x0a, 0x05, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x10, 0x04, 0x12, 0x0b, 0x0a, 0x07, 0x52, 0x65,
+	0x63, 0x6f, 0x76, 0x65, 0x72, 0x10, 0x05, 0x12, 0x08, 0x0a, 0x04, 0x54, 0x69, 0x63, 0x6b, 0x10,
+	0x06, 0x12, 0x0f, 0x0a, 0x0b, 0x50, 0x72, 0x65, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x4f, 0x6b,
+	0x10, 0x07, 0x12, 0x0c, 0x0a, 0x08, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x4f, 0x6b, 0x10, 0x08,
+	0x12, 0x0c, 0x0a, 0x08, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x4f, 0x6b, 0x10, 0x09, 0x12, 0x0a,
+	0x0a, 0x06, 0x52, 0x65, 0x61, 0x64, 0x4f, 0x6b, 0x10, 0x0a, 0x12, 0x0b, 0x0a, 0x07, 0x41, 0x70,
+	0x70, 0x6c, 0x79, 0x4f, 0x6b, 0x10, 0x0b, 0x12, 0x0d, 0x0a, 0x09, 0x52, 0x65, 0x63, 0x6f, 0x76,
+	0x65, 0x72, 0x4f, 0x6b, 0x10, 0x0c, 0x32, 0x2d, 0x0a, 0x0a, 0x43, 0x6f, 0x6f, 0x72, 0x64, 0x69,
+	0x6e, 0x61, 0x74, 0x65, 0x12, 0x1f, 0x0a, 0x07, 0x73, 0x65, 0x6e, 0x64, 0x52, 0x65, 0x71, 0x12,
+	0x08, 0x2e, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x1a, 0x08, 0x2e, 0x4d, 0x65, 0x73, 0x73,
+	0x61, 0x67, 0x65, 0x22, 0x00, 0x42, 0x0f, 0x5a, 0x0d, 0x63, 0x6d, 0x64, 0x2f, 0x50, 0x72, 0x69,
+	0x6d, 0x69, 0x74, 0x69, 0x76, 0x65, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1079,50 +997,47 @@ func file_cmd_proto_BasicMessage_proto_rawDescGZIP() []byte {
 	return file_cmd_proto_BasicMessage_proto_rawDescData
 }
 
-var file_cmd_proto_BasicMessage_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_cmd_proto_BasicMessage_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_cmd_proto_BasicMessage_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_cmd_proto_BasicMessage_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_cmd_proto_BasicMessage_proto_goTypes = []interface{}{
-	(ReqType)(0),                  // 0: ReqType
-	(RespType)(0),                 // 1: RespType
-	(*TransTimestamp)(nil),        // 2: TransTimestamp
-	(*ReadOp)(nil),                // 3: ReadOp
-	(*WriteOp)(nil),               // 4: WriteOp
-	(*Deps)(nil),                  // 5: Deps
-	(*Trans)(nil),                 // 6: Trans
-	(*PreAcceptReq)(nil),          // 7: PreAcceptReq
-	(*PreAcceptResp)(nil),         // 8: PreAcceptResp
-	(*AcceptReq)(nil),             // 9: AcceptReq
-	(*AcceptResp)(nil),            // 10: AcceptResp
-	(*CommitReq)(nil),             // 11: CommitReq
-	(*ReadReq)(nil),               // 12: ReadReq
-	(*ReadResp)(nil),              // 13: ReadResp
-	(*ApplyReq)(nil),              // 14: ApplyReq
-	(*RecoverReq)(nil),            // 15: RecoverReq
-	(*RecoverResp)(nil),           // 16: RecoverResp
-	(*TickMsg)(nil),               // 17: TickMsg
-	(*Request)(nil),               // 18: Request
-	(*Response)(nil),              // 19: Response
-	(*timestamppb.Timestamp)(nil), // 20: google.protobuf.Timestamp
+	(MsgType)(0),                  // 0: MsgType
+	(*TransTimestamp)(nil),        // 1: TransTimestamp
+	(*ReadOp)(nil),                // 2: ReadOp
+	(*WriteOp)(nil),               // 3: WriteOp
+	(*Deps)(nil),                  // 4: Deps
+	(*Trans)(nil),                 // 5: Trans
+	(*PreAcceptReq)(nil),          // 6: PreAcceptReq
+	(*PreAcceptResp)(nil),         // 7: PreAcceptResp
+	(*AcceptReq)(nil),             // 8: AcceptReq
+	(*AcceptResp)(nil),            // 9: AcceptResp
+	(*CommitReq)(nil),             // 10: CommitReq
+	(*ReadReq)(nil),               // 11: ReadReq
+	(*ReadResp)(nil),              // 12: ReadResp
+	(*ApplyReq)(nil),              // 13: ApplyReq
+	(*RecoverReq)(nil),            // 14: RecoverReq
+	(*RecoverResp)(nil),           // 15: RecoverResp
+	(*TickMsg)(nil),               // 16: TickMsg
+	(*Message)(nil),               // 17: Message
+	(*timestamppb.Timestamp)(nil), // 18: google.protobuf.Timestamp
 }
 var file_cmd_proto_BasicMessage_proto_depIdxs = []int32{
-	20, // 0: TransTimestamp.timeStamp:type_name -> google.protobuf.Timestamp
-	2,  // 1: Trans.timestamp:type_name -> TransTimestamp
-	3,  // 2: Trans.reads:type_name -> ReadOp
-	4,  // 3: Trans.writes:type_name -> WriteOp
-	6,  // 4: PreAcceptReq.trans:type_name -> Trans
-	2,  // 5: PreAcceptReq.t0:type_name -> TransTimestamp
-	2,  // 6: PreAcceptResp.t:type_name -> TransTimestamp
-	5,  // 7: PreAcceptResp.deps:type_name -> Deps
-	20, // 8: TickMsg.timeStamp:type_name -> google.protobuf.Timestamp
-	0,  // 9: Request.type:type_name -> ReqType
-	0,  // 10: Response.type:type_name -> ReqType
-	18, // 11: Coordinate.sendReq:input_type -> Request
-	19, // 12: Coordinate.sendReq:output_type -> Response
-	12, // [12:13] is the sub-list for method output_type
-	11, // [11:12] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	18, // 0: TransTimestamp.timeStamp:type_name -> google.protobuf.Timestamp
+	1,  // 1: Trans.timestamp:type_name -> TransTimestamp
+	2,  // 2: Trans.reads:type_name -> ReadOp
+	3,  // 3: Trans.writes:type_name -> WriteOp
+	5,  // 4: PreAcceptReq.trans:type_name -> Trans
+	1,  // 5: PreAcceptReq.t0:type_name -> TransTimestamp
+	1,  // 6: PreAcceptResp.t:type_name -> TransTimestamp
+	4,  // 7: PreAcceptResp.deps:type_name -> Deps
+	18, // 8: TickMsg.timeStamp:type_name -> google.protobuf.Timestamp
+	0,  // 9: Message.type:type_name -> MsgType
+	17, // 10: Coordinate.sendReq:input_type -> Message
+	17, // 11: Coordinate.sendReq:output_type -> Message
+	11, // [11:12] is the sub-list for method output_type
+	10, // [10:11] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_cmd_proto_BasicMessage_proto_init() }
@@ -1324,19 +1239,7 @@ func file_cmd_proto_BasicMessage_proto_init() {
 			}
 		}
 		file_cmd_proto_BasicMessage_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Request); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_cmd_proto_BasicMessage_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Response); i {
+			switch v := v.(*Message); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1353,8 +1256,8 @@ func file_cmd_proto_BasicMessage_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_cmd_proto_BasicMessage_proto_rawDesc,
-			NumEnums:      2,
-			NumMessages:   18,
+			NumEnums:      1,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

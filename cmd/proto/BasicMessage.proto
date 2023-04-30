@@ -69,7 +69,7 @@ message RecoverResp{
 message TickMsg{
   google.protobuf.Timestamp timeStamp =1;
 }
-enum ReqType{
+enum MsgType{
   PreAccept = 0;
   Accept = 1;
   Commit = 2;
@@ -77,29 +77,23 @@ enum ReqType{
   Apply = 4;
   Recover = 5;
   Tick = 6;
+  PreAcceptOk = 7;
+  AcceptOk = 8;
+  CommitOk = 9;
+  ReadOk = 10;
+  ApplyOk = 11;
+  RecoverOk = 12;
 }
 
-enum RespType{
-  PreAcceptOk = 0;
-  AcceptOk = 1;
-  CommitOk = 2;
-  ReadOk = 3;
-  ApplyOk = 4;
-  RecoverOk = 5;
-}
-message Request{
-  ReqType type = 1;
+
+message Message{
+  MsgType type = 1;
   bytes data = 2;
   int32 from = 3;
   int32 to = 4;
 }
-message Response{
-  ReqType type = 1;
-  bytes data = 2;
-  int32 from = 3;
-  int32 to = 4;
-}
+
 service Coordinate {
-  rpc sendReq(Request) returns (Response) {}
+  rpc sendReq(Message) returns (Message) {}
 
 }

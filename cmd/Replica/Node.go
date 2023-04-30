@@ -28,8 +28,8 @@ type Node struct {
 }
 type Server struct {
 	node  *Node
-	inCh  chan *pb.Request
-	outCh chan *pb.Response
+	inCh  chan *pb.Message
+	outCh chan *pb.Message
 }
 
 func connectCluster() {
@@ -86,7 +86,7 @@ func readClusterConfig() ([]Node, error) {
 	return nodes, nil
 }
 
-func startTicker(inCh chan *pb.Request) *time.Ticker {
+func startTicker(inCh chan *pb.Message) *time.Ticker {
 	ticker := time.NewTicker(time.Second)
 
 	for {
@@ -99,8 +99,8 @@ func startTicker(inCh chan *pb.Request) *time.Ticker {
 				},
 			}
 			data, _ := proto.Marshal(&tickMsg)
-			req := pb.Request{
-				Type: pb.ReqType_Tick,
+			req := pb.Message{
+				Type: pb.MsgType_Tick,
 				Data: data,
 			}
 			inCh <- &req
@@ -141,8 +141,8 @@ func main() {
 	}
 	localServer := &Server{
 		node:  cur,
-		inCh:  make(chan *pb.Request, 0),
-		outCh: make(chan *pb.Response, 0),
+		inCh:  make(chan *pb.Message, 0),
+		outCh: make(chan *pb.Message, 0),
 	}
 	// Start the timer here
 	if !*mode {
