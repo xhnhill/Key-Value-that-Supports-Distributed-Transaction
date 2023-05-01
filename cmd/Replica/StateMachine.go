@@ -7,8 +7,12 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
+	"sync"
 	"time"
 )
+
+const PEER_TIMEOUT int = 60 // unit is second
+const ERROR string = "[ERROR]: "
 
 // TODO config struct
 type Config struct {
@@ -30,6 +34,47 @@ type TimeoutTask struct {
 	fc    func(Transaction)
 	trans Transaction
 }
+
+// Used by failure detector to monitor Peer status
+// Should be init when the statemachine is created
+// Will be modified by
+// 1. tick msg: add timeout (main statemachine go routine)
+// 2. heartResponse: clear timeout (The go routine performs the synchronous rpc call)
+type PeerStatus struct {
+	mu    sync.Mutex
+	peers map[int32]*Peer
+}
+type Peer struct {
+	timeout int   // Should be init with PEER_TIMEOUT
+	status  bool  // True means alive
+	id      int32 // The same with nodeId
+}
+
+// Check and modify the timeout of peer Status
+func (st *StateMachine) modifyAndCheck(incr int) {
+	peerStatus := st.peerStatus
+	peerStatus.mu.Lock()
+	defer peerStatus.mu.Unlock()
+	for k, _ := range peerStatus.peers {
+		peer := peerStatus.peers[k]
+		if !peer.status {
+			continue
+		}
+		v := peer.timeout
+		v = v + incr
+		if v <= 0 {
+			log.Printf(ERROR+"Node %d is died, timeout detected", k)
+			//TODO perform timeout logic for node
+			// ?? Recover the timeout?
+			peerStatus.peers[k].status = false
+		} else {
+			peerStatus.peers[k].timeout = v
+		}
+	}
+
+}
+
+// TODO examine the parts that need synchronization
 type StateMachine struct {
 	id      int32                   // Actual node will map the Id to actual address
 	m_trans map[string]*Transaction // Managed transactions, because this state machine is its coordinator
@@ -50,6 +95,8 @@ type StateMachine struct {
 	inCh chan *pb.Message
 	//Out channel, which is the same with its node
 	outCh chan *pb.Message
+	//Peer status
+	peerStatus *PeerStatus
 }
 
 // Get keys of the transaction
