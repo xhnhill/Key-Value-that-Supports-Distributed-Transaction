@@ -232,6 +232,10 @@ func (st *StateMachine) processPreAccept() {
 
 }
 
+// Receive heartbeat response
+func (st *StateMachine) recvHeartbeatResponse(nodeId int32) {
+	//TODO update the node status monitored by statemachine
+}
 func (st *StateMachine) executeReq(req *pb.Message) {
 	switch req.Type {
 	case pb.MsgType_PreAccept:

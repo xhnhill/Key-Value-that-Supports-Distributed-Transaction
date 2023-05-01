@@ -234,7 +234,11 @@ func (ser *Server) performRPC() {
 					log.Fatalf(" Could not use rpc on node %d with err %v", node.nodeId, err)
 					return
 				} else {
-
+					// Perform heartbeat update here
+					if rpc.Type == pb.MsgType_HeartBeat {
+						var heartbeat pb.HeartbeatMsg
+						ser.stateMachine.recvHeartbeatResponse()
+					}
 				}
 			}
 			go f(tarNode, rpc)
