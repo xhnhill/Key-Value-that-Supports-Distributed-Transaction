@@ -11,6 +11,7 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -22,7 +23,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CoordinateClient interface {
-	SendReq(ctx context.Context, in *Message, opts ...grpc.CallOption) (*Message, error)
+	SendReq(ctx context.Context, in *Message, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type coordinateClient struct {
@@ -33,8 +34,8 @@ func NewCoordinateClient(cc grpc.ClientConnInterface) CoordinateClient {
 	return &coordinateClient{cc}
 }
 
-func (c *coordinateClient) SendReq(ctx context.Context, in *Message, opts ...grpc.CallOption) (*Message, error) {
-	out := new(Message)
+func (c *coordinateClient) SendReq(ctx context.Context, in *Message, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/Coordinate/sendReq", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -46,7 +47,7 @@ func (c *coordinateClient) SendReq(ctx context.Context, in *Message, opts ...grp
 // All implementations must embed UnimplementedCoordinateServer
 // for forward compatibility
 type CoordinateServer interface {
-	SendReq(context.Context, *Message) (*Message, error)
+	SendReq(context.Context, *Message) (*emptypb.Empty, error)
 	mustEmbedUnimplementedCoordinateServer()
 }
 
@@ -54,7 +55,7 @@ type CoordinateServer interface {
 type UnimplementedCoordinateServer struct {
 }
 
-func (UnimplementedCoordinateServer) SendReq(context.Context, *Message) (*Message, error) {
+func (UnimplementedCoordinateServer) SendReq(context.Context, *Message) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendReq not implemented")
 }
 func (UnimplementedCoordinateServer) mustEmbedUnimplementedCoordinateServer() {}

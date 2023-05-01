@@ -3,6 +3,7 @@ package Replica
 import (
 	pb "Distributed_Key_Value_Store/cmd/Primitive"
 	"bufio"
+	"context"
 	"flag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -34,6 +35,12 @@ type Server struct {
 	peers map[int]*Node // Connections to peers
 	//clients are indexed by addrs
 	clients map[string]*Node // Connected clients TODO maybe lazy deletion about non connected one?
+	pb.UnimplementedCoordinateServer
+}
+
+// TODO easy function ,just put received raw msg into input channel
+func (s *Server) SendReq(ctx context.Context, in *pb.Message) (*pb.Message, error) {
+	s.inCh <- in
 }
 
 func connectCluster() {

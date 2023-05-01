@@ -1,6 +1,8 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
 
 option go_package = "cmd/Primitive";
 
@@ -123,6 +125,6 @@ message Message{
 }
 
 service Coordinate {
-  rpc sendReq(Message) returns (Message) {}
+  rpc sendReq(Message) returns (google.protobuf.Empty) {}
 
 }
