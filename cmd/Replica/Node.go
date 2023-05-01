@@ -18,9 +18,10 @@ import (
 )
 
 var (
-	path       = flag.String("path", "config", "the path to config file")
-	selfConfig = flag.String("self", "self", "the path to self configuration file")
-	mode       = flag.Bool("mode", false, "True indicates in the debug mode")
+	path        = flag.String("path", "config", "the path to config file")
+	selfConfig  = flag.String("self", "self", "the path to self configuration file")
+	shardConfig = flag.String("shardConfig", "shardConfig", "Path for shard Configuration")
+	mode        = flag.Bool("mode", false, "True indicates in the debug mode")
 )
 
 type Node struct {
@@ -37,6 +38,7 @@ type Server struct {
 	//clients are indexed by addrs
 	clients map[string]*Node // Connected clients TODO maybe lazy deletion about non connected one?
 	pb.UnimplementedCoordinateServer
+	stateMachine *StateMachine
 }
 
 // Easy function ,just put received raw msg into input channel
@@ -81,7 +83,7 @@ func readClusterConfig() ([]Node, error) {
 	// repeated nodeId-Ip:port
 	config, err := os.Open(*path)
 	if err != nil {
-		log.Fatalf("Error to load cluster configuration file.")
+		log.Fatalf("Error to load cluster configuration file %v.", err)
 		return nil, err
 	}
 	defer config.Close()
@@ -99,6 +101,26 @@ func readClusterConfig() ([]Node, error) {
 		lineNumber++
 	}
 	return nodes, nil
+}
+
+// Read in the ShardConfig, and return all shards info and self shardInfo, and error
+// The config file layout:
+func readShardConfig() ([]*pb.ShardInfo, *pb.ShardInfo, error) {
+	config, err := os.Open(*shardConfig)
+	if err != nil {
+		log.Fatalf("Error to load shard configuration file %v.", err)
+		return nil, nil, err
+	}
+	defer config.Close()
+	scanner := bufio.NewScanner(config)
+	lineNumber := 0
+	var nodes []Node
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, "-")
+
+		lineNumber++
+	}
 }
 
 func startTicker(inCh chan *pb.Message) *time.Ticker {
@@ -195,6 +217,10 @@ func (ser *Server) performRPC() {
 		}
 
 	}
+}
+
+func (ser *StateMachine) initStateMachine() {
+
 }
 
 // TODO close the connections
