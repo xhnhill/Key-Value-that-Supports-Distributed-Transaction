@@ -13,19 +13,20 @@ import (
 // TODO config struct
 type Config struct {
 }
+
 type Transaction struct {
-	in_trans pb.Trans
+	in_trans *pb.Trans
 }
 type TimeoutTask struct {
 	fc    func(Transaction)
 	trans Transaction
 }
 type StateMachine struct {
-	id      int32         // Actual node will map the Id to actual address
-	m_trans []Transaction // Managed transactions, because this state machine is its coordinator
+	id      int32                   // Actual node will map the Id to actual address
+	m_trans map[string]*Transaction // Managed transactions, because this state machine is its coordinator
 	//TODO if need optimization of its data structure
 	//TODO maybe a heap here?
-	w_trans []Transaction // witnessed transactions, m_trans is a subset of this slice
+	w_trans map[string]*Transaction // witnessed transactions, m_trans is a subset of this slice
 	//a map here, which key is the transaction id, value should be the transaction
 	//Corresponding event will come here to uodate status
 
@@ -90,9 +91,61 @@ func (st *StateMachine) recvTrans(req *pb.Message) {
 	trans.Timestamp = st.generateTimestamp()
 	trans.Id = *st.generateTransId(trans.Timestamp)
 	trans.St = pb.TranStatus_New
-	// TODO Register transaction as managed transaction
-
+	//Register transaction as managed transaction
+	st.registerTrans(Managed, &trans)
 	// TODO calculate Electorates
+
+}
+func genKeySet(trans *pb.Trans) map[string]bool {
+	keySet := make(map[string]bool)
+	for i := 0; i < len(trans.Reads); i++ {
+		keySet[trans.Reads[i].Key] = true
+	}
+	for i := 0; i < len(trans.Writes); i++ {
+		keySet[trans.Writes[i].Key] = true
+	}
+	return keySet
+}
+
+// 1 means b1 greater than b2, 0 means equal, -1 means less
+func compareByte(b1 []byte, b2 []byte) int {
+	for i := 31; i >= 0; i-- {
+		if b1[i] > b2[i] {
+			return 1
+		} else if b1[i] < b2[i] {
+			return -1
+		}
+	}
+	return 0
+}
+func ifKeyInRange(key string, st []byte, end []byte) bool {
+	strByte := []byte(key)
+	diff := 32 - len(strByte)
+	for i := 0; i < diff; i++ {
+		strByte = append(strByte, 0x0)
+	}
+	return compareByte(strByte, st) >= 0 && compareByte(strByte, end) < 0
+}
+func (st *StateMachine) ifInShards(keySet map[string]bool, info *pb.ShardInfo) bool {
+	for key, _ := range keySet {
+		if ifKeyInRange(key, info.Start, info.End) {
+			return true
+		}
+	}
+	return false
+}
+
+// Basic version finding the electorates in preAccept
+// TODO may need modify and optimize
+func (st *StateMachine) getRelatedReplicas(trans *pb.Trans) []int32 {
+	var tars []int32
+	keySet := genKeySet(trans)
+	for i := 0; i < len(st.shards); i++ {
+		if st.ifInShards(keySet, st.shards[i]) {
+			tars = append(tars, st.shards[i].Replicas...)
+		}
+	}
+	return tars
 }
 
 type RegisterTransType int
@@ -103,12 +156,14 @@ const (
 )
 
 // TODO register transaction
-func (st *StateMachine) registerTrans(t RegisterTransType, trans *Transaction) {
+func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
+	tr := &Transaction{in_trans: trans}
 	switch t {
 	case Managed:
-		//TODO
+		st.m_trans[trans.Id] = tr
+		st.w_trans[trans.Id] = tr
 	case Witnessed:
-		//TODO
+		st.w_trans[trans.Id] = tr
 	}
 }
 
