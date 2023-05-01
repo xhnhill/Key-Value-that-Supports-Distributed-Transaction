@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
 	"os"
@@ -38,9 +39,12 @@ type Server struct {
 	pb.UnimplementedCoordinateServer
 }
 
-// TODO easy function ,just put received raw msg into input channel
-func (s *Server) SendReq(ctx context.Context, in *pb.Message) (*pb.Message, error) {
+// Easy function ,just put received raw msg into input channel
+// TODO how will the context object be used?
+func (s *Server) SendReq(ctx context.Context, in *pb.Message) (*emptypb.Empty, error) {
 	s.inCh <- in
+	return &emptypb.Empty{}, nil
+
 }
 
 func connectCluster() {
@@ -157,7 +161,41 @@ func (ser *Server) createAndConnUserClient(userInfo *pb.NodeInfo) {
 
 }
 
-//TODO function which is responsible for send out gRPC request
+// function which is responsible for send out gRPC request
+// Run in a single go routine, but will start lots of other goroutine
+// TODO check if it is thread safe to use ser.peers here
+func (ser *Server) performRPC() {
+	for {
+		rpc, ok := <-ser.outCh
+		if !ok {
+			log.Fatalf("output channel closed on server %d", ser.node.nodeId)
+			return
+		}
+		tarNodeId := int(rpc.To)
+		// TODO maybe we need read write lock here?
+		tarNode, exist := ser.peers[tarNodeId]
+		if exist {
+			// TODO maybe need to wrap the sending, in case sending fail
+			// TODO anything we need to add to context?
+			f := func(node *Node, msg *pb.Message) {
+				//TODO error handling here
+				_, err := node.client.SendReq(context.Background(), msg)
+				if err != nil {
+					log.Fatalf(" Could not use rpc on node %d with err %v", node.nodeId, err)
+					return
+				} else {
+
+				}
+			}
+			go f(tarNode, rpc)
+
+		} else {
+			log.Fatalf("Fail to perform rpc on node %d because no connection", tarNodeId)
+
+		}
+
+	}
+}
 
 // TODO close the connections
 func main() {
@@ -187,5 +225,10 @@ func main() {
 	}
 	nodes = createClients(nodes)
 	localServer.updatePeerClients(nodes)
+	// Start a go routine to send gRPC calls
+	go localServer.performRPC()
+	// Init statemachine
+
+	// Start to run state machine
 
 }
