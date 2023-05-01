@@ -249,6 +249,9 @@ func (ser *Server) performRPC() {
 
 func (ser *Server) initStateMachine() {
 	ser.generateShards(32)
+	//attach in/out channels to statemachine
+	ser.stateMachine.inCh = ser.inCh
+	ser.stateMachine.outCh = ser.outCh
 }
 
 // TODO close the connections

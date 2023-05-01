@@ -37,6 +37,10 @@ type StateMachine struct {
 	shards []*pb.ShardInfo
 	// Record the shard info of the current node
 	curShard *pb.ShardInfo
+	//In channel, which is the source of msgs
+	inCh chan *pb.Message
+	//Out channel, which is the same with its node
+	outCh chan *pb.Message
 }
 
 // Get keys of the transaction
@@ -94,7 +98,16 @@ func (st *StateMachine) recvTrans(req *pb.Message) {
 	//Register transaction as managed transaction
 	st.registerTrans(Managed, &trans)
 	// TODO calculate Electorates
+	e := st.getRelatedReplicas(&trans)
+	preAccepts := st.sendPreAccept(e, &trans)
+	st.sendMsgs(preAccepts)
+}
 
+// Logically send messages to channel
+func (st *StateMachine) sendMsgs(msgs []*pb.Message) {
+	for i := 0; i < len(msgs); i++ {
+		st.outCh <- msgs[i]
+	}
 }
 func genKeySet(trans *pb.Trans) map[string]bool {
 	keySet := make(map[string]bool)
