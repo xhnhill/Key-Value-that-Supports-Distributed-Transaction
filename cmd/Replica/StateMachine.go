@@ -12,10 +12,19 @@ import (
 
 // TODO config struct
 type Config struct {
+	epoch    int // config generation
+	fastSize int //fast quorum
 }
 
 type Transaction struct {
-	in_trans *pb.Trans
+	config    Config
+	in_trans  *pb.Trans
+	ifTimeout bool
+	// Only meaningful when ifTimeout == true, which labels the specific time to timeout
+	endTime *timestamppb.Timestamp
+	votes   int //total votes, different stage has different meaning
+	fVotes  int // votes satisfy the fast quorum
+
 }
 type TimeoutTask struct {
 	fc    func(Transaction)
@@ -204,12 +213,26 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 	return msgs
 }
 
+// TODO process tick message
+func (st *StateMachine) processTick(msg *pb.Message) {
+	//TODO check and deal with timeout transactions
+
+	//TODO purge managed and witnessed transactions of statemachine
+
+	// TODO Monitor the timeout statemachine,
+	// TODO here each node should have an accumulated timeout value
+	// TODO think if that value should be in this layer
+	// TODO Or both layer need, and they mean different things
+
+	//TODO Send heart beats, which acts as a weak failure detector
+}
+
 // TODO process the PreAccept Request
 func (st *StateMachine) processPreAccept() {
 
 }
 
-func (st *StateMachine) executeReq(req *pb.Message) []*pb.Message {
+func (st *StateMachine) executeReq(req *pb.Message) {
 	switch req.Type {
 	case pb.MsgType_PreAccept:
 		log.Printf("Receive req")
@@ -224,7 +247,11 @@ func (st *StateMachine) executeReq(req *pb.Message) []*pb.Message {
 	case pb.MsgType_Recover:
 		log.Printf("Receive req")
 	case pb.MsgType_Tick:
-		log.Printf("Receive req")
+		log.Printf("Execute logics for tick")
+		st.processTick(req)
+	case pb.MsgType_SubmitTrans:
+		log.Printf("Execute SubmitTrans request")
+		st.recvTrans(req)
 	}
 }
 

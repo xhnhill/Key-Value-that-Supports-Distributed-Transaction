@@ -34,6 +34,7 @@ message Trans{
   string id = 4;
   TranStatus st = 5;
   NodeInfo clientInfo = 6;
+  string cId = 7; // This cId is assigned by the client, which is used retrieve results
   //TODO if deps should be here
 
 }
