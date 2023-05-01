@@ -30,6 +30,10 @@ type Server struct {
 	node  *Node
 	inCh  chan *pb.Message
 	outCh chan *pb.Message
+
+	peers map[int]*Node // Connections to peers
+	//clients are indexed by addrs
+	clients map[string]*Node // Connected clients TODO maybe lazy deletion about non connected one?
 }
 
 func connectCluster() {
@@ -109,6 +113,7 @@ func startTicker(inCh chan *pb.Message) *time.Ticker {
 
 }
 
+// Create clients for peer nodes
 func createClients(nodes []Node) []Node {
 	for i := 0; i < len(nodes); i++ {
 		conn, err := grpc.Dial(nodes[i].addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -120,6 +125,29 @@ func createClients(nodes []Node) []Node {
 
 	}
 	return nodes
+}
+func (ser *Server) updatePeerClients(nodes []Node) {
+	for i := 0; i < len(nodes); i++ {
+		ser.peers[nodes[i].nodeId] = &nodes[i]
+	}
+}
+
+// Add user client (in case to respond results)
+// TODO consider about try to connect to clients also in recovery if the original coordinator failed
+func (ser *Server) createAndConnUserClient(userInfo *pb.NodeInfo) {
+	conn, err := grpc.Dial(userInfo.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("Could not connect to user client %s", userInfo.Addr)
+		return
+	}
+	userClient := pb.NewCoordinateClient(conn)
+	user := Node{
+		addr:   userInfo.Addr,
+		nodeId: 1000,
+		client: userClient,
+	}
+	ser.clients[user.addr] = &user
+
 }
 
 //TODO function which is responsible for send out gRPC request
@@ -151,5 +179,6 @@ func main() {
 		go startTicker(localServer.inCh)
 	}
 	nodes = createClients(nodes)
+	localServer.updatePeerClients(nodes)
 
 }

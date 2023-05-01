@@ -102,6 +102,8 @@ func getServerClient(serAddr string) pb.CoordinateClient {
 	}
 	return pb.NewCoordinateClient(conn)
 }
+
+// TODO optimize the client to be thread safe
 func main() {
 	flag.Parse()
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
