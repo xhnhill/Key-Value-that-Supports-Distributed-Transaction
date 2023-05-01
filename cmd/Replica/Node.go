@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
+	"math/big"
 	"os"
 	"strconv"
 	"strings"
@@ -18,10 +19,10 @@ import (
 )
 
 var (
-	path        = flag.String("path", "config", "the path to config file")
-	selfConfig  = flag.String("self", "self", "the path to self configuration file")
-	shardConfig = flag.String("shardConfig", "shardConfig", "Path for shard Configuration")
-	mode        = flag.Bool("mode", false, "True indicates in the debug mode")
+	path       = flag.String("path", "config", "the path to config file")
+	selfConfig = flag.String("self", "self", "the path to self configuration file")
+	shardsNum  = flag.Int("shards", 2, "Sharding num")
+	mode       = flag.Bool("mode", false, "True indicates in the debug mode")
 )
 
 type Node struct {
@@ -103,24 +104,51 @@ func readClusterConfig() ([]Node, error) {
 	return nodes, nil
 }
 
-// Read in the ShardConfig, and return all shards info and self shardInfo, and error
-// The config file layout:
-func readShardConfig() ([]*pb.ShardInfo, *pb.ShardInfo, error) {
-	config, err := os.Open(*shardConfig)
-	if err != nil {
-		log.Fatalf("Error to load shard configuration file %v.", err)
-		return nil, nil, err
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
-	defer config.Close()
-	scanner := bufio.NewScanner(config)
-	lineNumber := 0
-	var nodes []Node
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.Split(line, "-")
+	return b
+}
 
-		lineNumber++
+// Allocate shards
+func (ser *Server) generateShards(n int) {
+	// Generate array full of bytes, n indicates the array length
+	arr := make([]byte, n)
+	for i := 0; i < n; i++ {
+		arr[i] = 0xFF
 	}
+	var shards []*pb.ShardInfo
+	x := new(big.Int).SetBytes(arr)
+	q := new(big.Int).Div(x, big.NewInt(int64(*shardsNum)))
+	sum := big.NewInt(0)
+	nodesNum := len(ser.peers)
+	unit := nodesNum / (*shardsNum)
+	for i := 0; i < *shardsNum; i++ {
+		var replicas []int32
+		for j := i * unit; j < min((i+1)*unit, nodesNum); j++ {
+			replicas = append(replicas, int32(j))
+		}
+		if i == n-1 {
+
+		}
+		st := sum.Bytes()
+		sum.Add(sum, q)
+		ed := sum.Bytes()
+		if i == n-1 {
+			ed = arr
+		}
+		shard := pb.ShardInfo{
+			Start:    st,
+			End:      ed,
+			ShardId:  int32(i),
+			Replicas: replicas,
+		}
+		shards = append(shards, &shard)
+	}
+	ser.stateMachine.shards = shards
+	ser.stateMachine.curShard = shards[ser.node.nodeId/(*shardsNum)]
+
 }
 
 func startTicker(inCh chan *pb.Message) *time.Ticker {
@@ -219,8 +247,8 @@ func (ser *Server) performRPC() {
 	}
 }
 
-func (ser *StateMachine) initStateMachine() {
-
+func (ser *Server) initStateMachine() {
+	ser.generateShards(32)
 }
 
 // TODO close the connections
@@ -254,7 +282,8 @@ func main() {
 	// Start a go routine to send gRPC calls
 	go localServer.performRPC()
 	// Init statemachine
-
+	localServer.initStateMachine()
 	// Start to run state machine
+	localServer.stateMachine.mainLoop(localServer.inCh, localServer.outCh)
 
 }
