@@ -41,6 +41,12 @@ message NodeInfo{
   string addr = 1; // ip:port
 
 }
+message ShardInfo{
+  bytes start = 1;
+  bytes end = 2;
+  int32 shardId = 3;
+  repeated int32 replicas = 4;
+}
 //Used by the client to submit the trans
 //TODO The coordinator should return the transactionId to the client at suitable time
 message SubmitTransReq{

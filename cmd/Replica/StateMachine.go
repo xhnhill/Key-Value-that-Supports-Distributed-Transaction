@@ -31,7 +31,11 @@ type StateMachine struct {
 
 	//Ballot number
 	ballot int32
-	//TODO an array, size of 2, label the range of shard
+	//TODO shards
+	//shards contain the sharding info of the cluster
+	shards []*pb.ShardInfo
+	// Record the shard info of the current node
+	curShard *pb.ShardInfo
 }
 
 // Get keys of the transaction
