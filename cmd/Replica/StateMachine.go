@@ -80,8 +80,19 @@ func (st *StateMachine) generateTransId(t *pb.TransTimestamp) *string {
 }
 
 // TODO process Transaction submission from client
-func (st *StateMachine) recvTrans() {
+// TODO any persistent needs during processing   thinking after the first draft
+func (st *StateMachine) recvTrans(req *pb.Message) {
 
+	//UnMarshall trans
+	var trans pb.Trans
+	proto.Unmarshal(req.Data, &trans)
+	// Preprocess transactions
+	trans.Timestamp = st.generateTimestamp()
+	trans.Id = *st.generateTransId(trans.Timestamp)
+	trans.St = pb.TranStatus_New
+	// TODO Register transaction as managed transaction
+
+	// TODO calculate Electorates
 }
 
 type RegisterTransType int
