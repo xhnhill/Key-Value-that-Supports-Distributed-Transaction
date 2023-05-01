@@ -16,6 +16,7 @@ message ReadOp{
 // TODO Add more complex operation to WriteOp
 message WriteOp{
   string key =1;
+  string val = 2;
 }
 //TODO check if more fields are needed
 message Deps{
@@ -30,8 +31,20 @@ message Trans{
   repeated WriteOp writes =3;
   string id = 4;
   TranStatus st = 5;
+  NodeInfo clientInfo = 6;
   //TODO if deps should be here
 
+}
+//Used for client to pass its info, so that coordinator know how to send back info
+// My need to be separated to other nodes during PreAccept TODO
+message NodeInfo{
+  string addr = 1; // ip:port
+
+}
+//Used by the client to submit the trans
+//TODO The coordinator should return the transactionId to the client at suitable time
+message SubmitTransReq{
+  Trans trans = 1;
 }
 message PreAcceptReq{
   Trans trans = 1;
@@ -92,6 +105,7 @@ enum MsgType{
   ReadOk = 10;
   ApplyOk = 11;
   RecoverOk = 12;
+  SubmitTrans = 13;   // Used by the client to submit the transaction
 }
 
 

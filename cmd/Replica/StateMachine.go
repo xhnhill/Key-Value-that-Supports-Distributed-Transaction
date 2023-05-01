@@ -75,6 +75,31 @@ func (st *StateMachine) generateTransId(t *pb.TransTimestamp) *string {
 	return &hashString
 }
 
+// TODO process Transaction submission from client
+func (st *StateMachine) recvTrans() {
+
+}
+
+type RegisterTransType int
+
+const (
+	Managed RegisterTransType = iota
+	Witnessed
+)
+
+// TODO register transaction
+func (st *StateMachine) registerTrans(t RegisterTransType, trans *Transaction) {
+	switch t {
+	case Managed:
+		//TODO
+	case Witnessed:
+		//TODO
+	}
+}
+
+// TODO if need to update the transaction info
+
+// Send PreAccept Request
 func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Message {
 	// The transaction received doesn't have t0 and id
 	var msgs []*pb.Message
@@ -94,6 +119,11 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 		})
 	}
 	return msgs
+}
+
+// TODO process the PreAccept Request
+func (st *StateMachine) processPreAccept() {
+
 }
 
 func (st *StateMachine) executeReq(req *pb.Message) []*pb.Message {
