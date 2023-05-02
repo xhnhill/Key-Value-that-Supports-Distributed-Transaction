@@ -28,11 +28,12 @@ type Transaction struct {
 	ifTimeout bool
 	// Only meaningful when ifTimeout == true, which labels the specific time to timeout
 	endTime   *timestamppb.Timestamp
-	votes     int             //total votes, different stage has different meaning
-	fVotes    int             // votes satisfy the fast quorum
-	deps      map[string]bool // A deps set used for current stage
-	couldFast bool            // true when still considering the fast path, false means use slow path
-	failsNum  int             //Number of failed peers
+	votes     int                //total votes, different stage has different meaning
+	fVotes    int                // votes satisfy the fast quorum
+	deps      map[string]bool    // A deps set used for current stage
+	couldFast bool               // true when still considering the fast path, false means use slow path
+	failsNum  int                //Number of failed peers
+	collectT  *pb.TransTimestamp // Used in the PreAccept which collects max t from PreAcceptOK
 }
 
 // Extract the keys and save it as string in the keys field of Transaction
@@ -457,6 +458,11 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 		curTrans.fVotes++
 	}
 	curTrans.votes++
+	//update collectT proposed by PreAcceptOK
+	curTrans.collectT = copyTransTimestamp(curTrans.in_trans.T0)
+	if compareTimestamp(preAcceptOk.T, curTrans.collectT) {
+		curTrans.collectT = copyTransTimestamp(preAcceptOk.T)
+	}
 	//TODO check if must slow path now
 	//TODO check if fast quorum is enough
 	//TODO slow path status
@@ -483,6 +489,25 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 
 		}
 	} else {
+		if curTrans.votes >= curTrans.config.classSize {
+			accMsg := &pb.AcceptReq{
+				Trans: curTrans.in_trans,
+				ExT:   curTrans.collectT,
+				Deps:  &pb.Deps{Ids: st.convDepsSet(curTrans.deps)},
+			}
+			//send acceptMsg
+			data, _ := proto.Marshal(accMsg)
+			var msgs []*pb.Message
+			for i := 0; i < len(curTrans.in_trans.RelatedReplicas); i++ {
+				msgs = append(msgs, &pb.Message{
+					Type: pb.MsgType_Accept,
+					Data: data,
+					From: st.id,
+					To:   curTrans.in_trans.RelatedReplicas[i],
+				})
+			}
+			st.sendMsgs(msgs)
+		}
 
 	}
 

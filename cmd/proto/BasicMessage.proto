@@ -70,7 +70,9 @@ message PreAcceptResp{
 }
 
 message AcceptReq{
-
+  Trans trans = 1;
+  TransTimestamp exT =2;
+  Deps deps = 3;
 }
 message AcceptResp{
 
