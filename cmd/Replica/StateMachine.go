@@ -26,9 +26,11 @@ type Transaction struct {
 	keys      []string //Record all the keys used by the transactions
 	ifTimeout bool
 	// Only meaningful when ifTimeout == true, which labels the specific time to timeout
-	endTime *timestamppb.Timestamp
-	votes   int //total votes, different stage has different meaning
-	fVotes  int // votes satisfy the fast quorum
+	endTime   *timestamppb.Timestamp
+	votes     int             //total votes, different stage has different meaning
+	fVotes    int             // votes satisfy the fast quorum
+	deps      map[string]bool // A deps set used for current stage
+	couldFast bool            // true when still considering the fast path, false means use slow path
 
 }
 
@@ -389,8 +391,9 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	st.w_trans[innerTrans.Id].in_trans.St = pb.TranStatus_PreAccepted
 	//Send PreAcceptOk message
 	PreAcceptOk := &pb.PreAcceptResp{
-		T:    tTrans,
-		Deps: st.genDepsPreAccept(conflicts, innerTrans.T0),
+		T:       tTrans,
+		Deps:    st.genDepsPreAccept(conflicts, innerTrans.T0),
+		TransId: innerTrans.Id,
 	}
 	data, _ := proto.Marshal(PreAcceptOk)
 	var msgs []*pb.Message
@@ -417,9 +420,25 @@ func (st *StateMachine) genDepsPreAccept(cfl []string, t0 *pb.TransTimestamp) *p
 	return &pb.Deps{Ids: deps}
 }
 
-// TODO process PreAcceptOk
-func (st *StateMachine) processPreAcceptOk() {
+// update corresponding deps in transaction with transId
+func (st *StateMachine) updateDeps(cfl []string, trans *Transaction) {
+	for i := 0; i < len(cfl); i++ {
+		trans.deps[cfl[i]] = true
+	}
+}
 
+// TODO process PreAcceptOk
+func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
+	var preAcceptOk *pb.PreAcceptResp
+	proto.Unmarshal(req.Data, preAcceptOk)
+	//TODO think about what if this node doesn't see this trans
+	curTrans := st.m_trans[preAcceptOk.TransId]
+	//update votes
+	curTrans.fVotes++
+	curTrans.votes++
+	//TODO check if must slow path now
+	//TODO check if fast quorum is enough
+	//TODO slow path status
 }
 
 // Receive heartbeat response
@@ -432,6 +451,8 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 	case pb.MsgType_PreAccept:
 		log.Printf("Receive PreAccept Msg from %d", req.From)
 		st.processPreAccept(req)
+	case pb.MsgType_PreAcceptOk:
+		log.Printf("Receive PreAcceptOk Msg from %d", req.From)
 	case pb.MsgType_Accept:
 		log.Printf("Receive req")
 	case pb.MsgType_Commit:

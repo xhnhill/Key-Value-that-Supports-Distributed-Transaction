@@ -63,6 +63,7 @@ message PreAcceptReq{
 message PreAcceptResp{
   TransTimestamp t = 1;
   Deps deps = 2;
+  string transId = 3;
 }
 
 message AcceptReq{
