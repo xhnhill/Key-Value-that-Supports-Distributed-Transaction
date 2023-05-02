@@ -1,6 +1,6 @@
 module Distributed_Key_Value_Store
 
-go 1.18
+go 1.20
 
 require (
 	github.com/dgraph-io/badger/v4 v4.1.0
