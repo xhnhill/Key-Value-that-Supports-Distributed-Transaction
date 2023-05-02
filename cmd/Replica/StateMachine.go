@@ -13,6 +13,7 @@ import (
 
 const PEER_TIMEOUT int = 60 // unit is second
 const ERROR string = "[ERROR]: "
+const FQ_TIMEOUT time.Duration = 20 * time.Second
 
 // TODO config struct
 type Config struct {
@@ -218,6 +219,13 @@ func (st *StateMachine) recvTrans(req *pb.Message) {
 	trans.EleSize = int32(len(e))
 	preAccepts := st.sendPreAccept(e, &trans)
 	st.sendMsgs(preAccepts)
+	//Begin to set timeout for fast quorum
+	curTrans := st.m_trans[trans.Id]
+	tarTimeout := time.Now().Add(FQ_TIMEOUT)
+	curTrans.endTime = &timestamppb.Timestamp{
+		Seconds: tarTimeout.Unix(),
+		Nanos:   int32(tarTimeout.Nanosecond()),
+	}
 }
 
 // Logically send messages to channel
@@ -324,8 +332,30 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 
 // TODO process tick message
 func (st *StateMachine) processTick(msg *pb.Message) {
-
+	//UnMarshal the msg
+	var tickMsg *pb.TickMsg
+	proto.Unmarshal(msg.Data, tickMsg)
 	//TODO check and deal with timeout transactions
+	//TODO Timeout for fast quorum
+	mTrans := st.m_trans
+	for k, _ := range mTrans {
+		tar := mTrans[k]
+
+		if tar.in_trans.St == pb.TranStatus_PreAccepted ||
+			tar.in_trans.St == pb.TranStatus_New {
+			if tar.endTime != nil &&
+				tickMsg.TimeStamp.AsTime().After(tar.endTime.AsTime()) {
+				log.Printf("Fast quorum timeout on node %d", st.id)
+				//Perform timeout logic
+				tar.couldFast = false
+				//TODO force to check the slow path logic
+				tar.endTime = nil
+				st.checkAndProcessSlowPath(tar)
+			}
+
+		}
+	}
+	//TODO  timeout for recovery
 
 	//TODO purge managed and witnessed transactions of statemachine
 
@@ -447,6 +477,30 @@ func (st *StateMachine) convDepsSet(depsSet map[string]bool) []string {
 	return deps
 }
 
+// Because timeout, msgs may duplicate
+// Receiver should be able to filter
+func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
+	if curTrans.votes >= curTrans.config.classSize {
+		accMsg := &pb.AcceptReq{
+			Trans: curTrans.in_trans,
+			ExT:   curTrans.collectT,
+			Deps:  &pb.Deps{Ids: st.convDepsSet(curTrans.deps)},
+		}
+		//send acceptMsg
+		data, _ := proto.Marshal(accMsg)
+		var msgs []*pb.Message
+		for i := 0; i < len(curTrans.in_trans.RelatedReplicas); i++ {
+			msgs = append(msgs, &pb.Message{
+				Type: pb.MsgType_Accept,
+				Data: data,
+				From: st.id,
+				To:   curTrans.in_trans.RelatedReplicas[i],
+			})
+		}
+		st.sendMsgs(msgs)
+	}
+}
+
 // TODO process PreAcceptOk
 func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	var preAcceptOk *pb.PreAcceptResp
@@ -489,25 +543,7 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 
 		}
 	} else {
-		if curTrans.votes >= curTrans.config.classSize {
-			accMsg := &pb.AcceptReq{
-				Trans: curTrans.in_trans,
-				ExT:   curTrans.collectT,
-				Deps:  &pb.Deps{Ids: st.convDepsSet(curTrans.deps)},
-			}
-			//send acceptMsg
-			data, _ := proto.Marshal(accMsg)
-			var msgs []*pb.Message
-			for i := 0; i < len(curTrans.in_trans.RelatedReplicas); i++ {
-				msgs = append(msgs, &pb.Message{
-					Type: pb.MsgType_Accept,
-					Data: data,
-					From: st.id,
-					To:   curTrans.in_trans.RelatedReplicas[i],
-				})
-			}
-			st.sendMsgs(msgs)
-		}
+		st.checkAndProcessSlowPath(curTrans)
 
 	}
 
@@ -525,6 +561,7 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 		st.processPreAccept(req)
 	case pb.MsgType_PreAcceptOk:
 		log.Printf("Receive PreAcceptOk Msg from %d", req.From)
+		st.processPreAcceptOk(req)
 	case pb.MsgType_Accept:
 		log.Printf("Receive req")
 	case pb.MsgType_Commit:
