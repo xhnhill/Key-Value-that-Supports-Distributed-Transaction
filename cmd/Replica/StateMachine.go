@@ -1,4 +1,4 @@
-package Replica
+package main
 
 import (
 	pb "Distributed_Key_Value_Store/cmd/Primitive"

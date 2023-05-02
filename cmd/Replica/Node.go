@@ -1,10 +1,11 @@
-package Replica
+package main
 
 import (
 	pb "Distributed_Key_Value_Store/cmd/Primitive"
 	"bufio"
 	"context"
 	"flag"
+	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
 	"math/big"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -195,12 +197,18 @@ func (ser *Server) startTicker(inCh chan *pb.Message) *time.Ticker {
 
 // Create clients for peer nodes
 func createClients(nodes []Node) []Node {
+
 	for i := 0; i < len(nodes); i++ {
-		conn, err := grpc.Dial(nodes[i].addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			log.Fatalf("Node %d may fail, could not connect", nodes[i].nodeId)
-		} else {
-			nodes[i].client = pb.NewCoordinateClient(conn)
+		for j := 0; j < 5; j++ {
+			conn, err := grpc.Dial(nodes[i].addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				log.Printf("Node %d may fail, try again", nodes[i].nodeId)
+				time.Sleep(10 * time.Second)
+			} else {
+				nodes[i].client = pb.NewCoordinateClient(conn)
+				log.Printf("Node %d connect successful", nodes[i].nodeId)
+				break
+			}
 		}
 
 	}
@@ -285,7 +293,6 @@ func main() {
 	if err != nil {
 		return
 	}
-	log.Printf("Node %d, begin to load and address is %s"+": %d", nodeId, ip, port)
 	cur := &Node{
 		nodeId: nodeId,
 		addr:   ip + strconv.Itoa(port),
@@ -299,6 +306,18 @@ func main() {
 		node:  cur,
 		inCh:  make(chan *pb.Message, 0),
 		outCh: make(chan *pb.Message, 0),
+	}
+	log.Printf("Node %d, begin to load and address is %s"+": %d", nodeId, ip, port)
+	//server begin to serve
+	lis, err := net.Listen("tcp", ip+fmt.Sprintf(":%d", port))
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	s := grpc.NewServer()
+	pb.RegisterCoordinateServer(s, localServer)
+	log.Printf("server listening at %v", lis.Addr())
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
 	}
 	// Start the timer here
 	if !*mode {
