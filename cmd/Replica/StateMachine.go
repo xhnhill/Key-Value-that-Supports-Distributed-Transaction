@@ -329,7 +329,14 @@ func (st *StateMachine) processTick(msg *pb.Message) {
 	//TODO Send heart beats, which acts as a weak failure detector
 }
 
-// The timestamp should not be equal, true means t1 >t2
+// TODO write unit test for this function
+func equals(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
+	tp1 := t1.TimeStamp.AsTime()
+	tp2 := t2.TimeStamp.AsTime()
+	return tp1.Equal(tp2) && t1.Seq == t2.Seq && t1.Id == t2.Id
+}
+
+// true means greater
 func compareTimestamp(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
 	tp1 := t1.TimeStamp.AsTime()
 	tp2 := t2.TimeStamp.AsTime()
@@ -341,6 +348,13 @@ func compareTimestamp(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
 		}
 	} else {
 		return tp1.After(tp2)
+	}
+}
+func copyTransTimestamp(timestamp *pb.TransTimestamp) *pb.TransTimestamp {
+	return &pb.TransTimestamp{
+		TimeStamp: timestamp.TimeStamp,
+		Seq:       timestamp.Seq,
+		Id:        timestamp.Id,
 	}
 }
 
@@ -357,6 +371,36 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	//check conflicts of transactions
 	conflicts := st.getConflicts(trans)
 	//compare and set t(trans) and T(trans)
+	// May need to copy a timestamp, because we will modify it
+
+	tTrans := copyTransTimestamp(innerTrans.Timestamp)
+	for i := 0; i < len(conflicts); i++ {
+		// Compare with T
+		tarTimestamp := st.T[conflicts[i]]
+		if !compareTimestamp(tTrans, tarTimestamp) {
+			tTrans = copyTransTimestamp(tarTimestamp)
+			tTrans.Seq = tTrans.Seq + 1
+			tTrans.Id = st.id
+		}
+	}
+	// Assign max timestamp to T
+	st.T[innerTrans.Id] = tTrans
+	//update the transaction status to PreAccepted
+	st.w_trans[innerTrans.Id].in_trans.St = pb.TranStatus_PreAccepted
+	//Send PreAcceptOk message
+
+}
+
+// Generate deps of trans in processing PreAccept phase
+// According to paper, should use t0 to filter
+func (st *StateMachine) genDepsPreAccept(cfl []string, t0 *pb.TransTimestamp) {
+	var deps []string
+	for i := 0; i < len(cfl); i++ {
+		tarTrans := st.w_trans[cfl[i]].in_trans.Timestamp
+		if compareTimestamp(t0) {
+
+		}
+	}
 }
 
 // TODO process PreAcceptOk

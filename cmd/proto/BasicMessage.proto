@@ -27,7 +27,7 @@ message Deps{
 }
 //TODO design reads part and writes
 message Trans{
-  //TODO Check the specific meaning of this timestamp
+  //The following timestamp should be the t0, which should not be modified
   TransTimestamp timestamp = 1;
   repeated ReadOp reads = 2;
   repeated WriteOp writes =3;
