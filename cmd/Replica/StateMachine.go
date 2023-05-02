@@ -40,10 +40,12 @@ type TimeoutTask struct {
 // Will be modified by
 // 1. tick msg: add timeout (main statemachine go routine)
 // 2. heartResponse: clear timeout (The go routine performs the synchronous rpc call)
+// TODO init this struct in statemachine
 type PeerStatus struct {
 	mu    sync.Mutex
 	peers map[int32]*Peer
 }
+
 type Peer struct {
 	timeout int   // Should be init with PEER_TIMEOUT
 	status  bool  // True means alive
@@ -51,25 +53,32 @@ type Peer struct {
 }
 
 // Check and modify the timeout of peer Status
-func (st *StateMachine) modifyAndCheck(incr int) {
+// when nodeId is -1, perform on all node
+func (st *StateMachine) modifyAndCheck(incr int, nodeId int32) {
 	peerStatus := st.peerStatus
 	peerStatus.mu.Lock()
 	defer peerStatus.mu.Unlock()
-	for k, _ := range peerStatus.peers {
-		peer := peerStatus.peers[k]
-		if !peer.status {
-			continue
+	if nodeId > 0 {
+		// Increasing currently when receive heartbeat resp
+		peerStatus.peers[nodeId].timeout = PEER_TIMEOUT
+	} else {
+		for k, _ := range peerStatus.peers {
+			peer := peerStatus.peers[k]
+			if !peer.status {
+				continue
+			}
+			v := peer.timeout
+			v = v + incr
+			if v <= 0 {
+				log.Printf(ERROR+"Node %d is died, timeout detected", k)
+				//TODO perform timeout logic for node
+				// ?? Recover the timeout?
+				peerStatus.peers[k].status = false
+			} else {
+				peerStatus.peers[k].timeout = v
+			}
 		}
-		v := peer.timeout
-		v = v + incr
-		if v <= 0 {
-			log.Printf(ERROR+"Node %d is died, timeout detected", k)
-			//TODO perform timeout logic for node
-			// ?? Recover the timeout?
-			peerStatus.peers[k].status = false
-		} else {
-			peerStatus.peers[k].timeout = v
-		}
+
 	}
 
 }
@@ -262,6 +271,7 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 
 // TODO process tick message
 func (st *StateMachine) processTick(msg *pb.Message) {
+
 	//TODO check and deal with timeout transactions
 
 	//TODO purge managed and witnessed transactions of statemachine
@@ -270,6 +280,7 @@ func (st *StateMachine) processTick(msg *pb.Message) {
 	// TODO here each node should have an accumulated timeout value
 	// TODO think if that value should be in this layer
 	// TODO Or both layer need, and they mean different things
+	st.modifyAndCheck(-1, -1)
 
 	//TODO Send heart beats, which acts as a weak failure detector
 }
@@ -279,9 +290,15 @@ func (st *StateMachine) processPreAccept() {
 
 }
 
+// TODO process PreAcceptOk
+func (st *StateMachine) processPreAcceptOk() {
+
+}
+
 // Receive heartbeat response
 func (st *StateMachine) recvHeartbeatResponse(nodeId int32) {
 	//TODO update the node status monitored by statemachine
+	st.modifyAndCheck(PEER_TIMEOUT, nodeId)
 }
 func (st *StateMachine) executeReq(req *pb.Message) {
 	switch req.Type {
