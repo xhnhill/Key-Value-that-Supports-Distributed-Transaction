@@ -23,6 +23,7 @@ type Config struct {
 type Transaction struct {
 	config    Config
 	in_trans  *pb.Trans
+	keys      []string //Record all the keys used by the transactions
 	ifTimeout bool
 	// Only meaningful when ifTimeout == true, which labels the specific time to timeout
 	endTime *timestamppb.Timestamp
@@ -104,8 +105,12 @@ type StateMachine struct {
 	inCh chan *pb.Message
 	//Out channel, which is the same with its node
 	outCh chan *pb.Message
-	//Peer status
+	//Peer status, mainly about the indication of connection
 	peerStatus *PeerStatus
+	// T recorded for witnessed transactions
+	T map[string]*pb.TransTimestamp
+	// conflicting keys, which register key - transaction relationship
+	conflictMap map[string][]string
 }
 
 // Get keys of the transaction
@@ -116,7 +121,8 @@ func (trans *Transaction) getKeys() {
 
 // Generate conflict trans
 // Judge the return
-func (st *StateMachine) getConflicts(trans *Transaction) {
+// Use the inverted index to find the conflicts
+func (st *StateMachine) getConflicts(trans *Transaction) []*string {
 
 }
 
@@ -238,8 +244,9 @@ func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
 	tr := &Transaction{in_trans: trans}
 	switch t {
 	case Managed:
+		// Because the managed statemachine will also recv PreAccept,
+		//the witnessed will be update at that stage
 		st.m_trans[trans.Id] = tr
-		st.w_trans[trans.Id] = tr
 	case Witnessed:
 		st.w_trans[trans.Id] = tr
 	}
@@ -286,8 +293,11 @@ func (st *StateMachine) processTick(msg *pb.Message) {
 }
 
 // TODO process the PreAccept Request
-func (st *StateMachine) processPreAccept() {
+func (st *StateMachine) processPreAccept(req *pb.Message) {
+	//Register the transaction as witnesses
 
+	//Update the transaction
+	//check conflicts of transactions
 }
 
 // TODO process PreAcceptOk
@@ -303,7 +313,8 @@ func (st *StateMachine) recvHeartbeatResponse(nodeId int32) {
 func (st *StateMachine) executeReq(req *pb.Message) {
 	switch req.Type {
 	case pb.MsgType_PreAccept:
-		log.Printf("Receive req")
+		log.Printf("Receive PreAccept Msg from %d", req.From)
+		st.processPreAccept(req)
 	case pb.MsgType_Accept:
 		log.Printf("Receive req")
 	case pb.MsgType_Commit:
