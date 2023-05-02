@@ -16,8 +16,9 @@ const ERROR string = "[ERROR]: "
 
 // TODO config struct
 type Config struct {
-	epoch    int // config generation
-	fastSize int //fast quorum
+	epoch     int // config generation
+	fastSize  int //fast quorum
+	classSize int // classical quorum
 }
 
 type Transaction struct {
@@ -31,7 +32,7 @@ type Transaction struct {
 	fVotes    int             // votes satisfy the fast quorum
 	deps      map[string]bool // A deps set used for current stage
 	couldFast bool            // true when still considering the fast path, false means use slow path
-
+	failsNum  int             //Number of failed peers
 }
 
 // Extract the keys and save it as string in the keys field of Transaction
@@ -209,6 +210,11 @@ func (st *StateMachine) recvTrans(req *pb.Message) {
 	st.registerTrans(Managed, &trans)
 	// TODO calculate Electorates
 	e := st.getRelatedReplicas(&trans)
+	//update the related replicas in the innerTrans
+	trans.RelatedReplicas = e
+	//TODO Optimize the configuration process
+	//Set electorates size of the transaction
+	trans.EleSize = int32(len(e))
 	preAccepts := st.sendPreAccept(e, &trans)
 	st.sendMsgs(preAccepts)
 }
@@ -372,6 +378,12 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	trans.updateKeys()
 	//check conflicts of transactions
 	conflicts := st.getConflicts(trans)
+	// Update specific config for this Trans
+	//TODO optimize this configuration process
+	trans.couldFast = true
+	eSize := innerTrans.EleSize
+	trans.config.fastSize = int(3*eSize/4) + 1
+	trans.config.classSize = int(eSize/2) + 1
 	//compare and set t(trans) and T(trans)
 	// May need to copy a timestamp, because we will modify it
 
@@ -426,6 +438,13 @@ func (st *StateMachine) updateDeps(cfl []string, trans *Transaction) {
 		trans.deps[cfl[i]] = true
 	}
 }
+func (st *StateMachine) convDepsSet(depsSet map[string]bool) []string {
+	var deps []string
+	for k, _ := range depsSet {
+		deps = append(deps, k)
+	}
+	return deps
+}
 
 // TODO process PreAcceptOk
 func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
@@ -434,11 +453,39 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	//TODO think about what if this node doesn't see this trans
 	curTrans := st.m_trans[preAcceptOk.TransId]
 	//update votes
-	curTrans.fVotes++
+	if equals(preAcceptOk.T, curTrans.in_trans.T0) {
+		curTrans.fVotes++
+	}
 	curTrans.votes++
 	//TODO check if must slow path now
 	//TODO check if fast quorum is enough
 	//TODO slow path status
+	if curTrans.couldFast {
+		if curTrans.fVotes >= curTrans.config.fastSize {
+			//perform the fast path logic
+
+			commitMsg := &pb.CommitReq{
+				Trans: curTrans.in_trans,
+				ExT:   curTrans.in_trans.T0,
+				Deps:  &pb.Deps{Ids: st.convDepsSet(curTrans.deps)},
+			}
+			data, _ := proto.Marshal(commitMsg)
+			var msgs []*pb.Message
+			for i := 0; i < len(curTrans.in_trans.RelatedReplicas); i++ {
+				msgs = append(msgs, &pb.Message{
+					Type: pb.MsgType_Commit,
+					Data: data,
+					From: st.id,
+					To:   curTrans.in_trans.RelatedReplicas[i],
+				})
+			}
+			st.sendMsgs(msgs)
+
+		}
+	} else {
+
+	}
+
 }
 
 // Receive heartbeat response

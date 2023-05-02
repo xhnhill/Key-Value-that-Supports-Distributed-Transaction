@@ -37,6 +37,9 @@ message Trans{
   string cId = 7; // This cId is assigned by the client, which is used retrieve results
   //TODO if deps should be here
 
+  int32 eleSize =8; // Size of the electorates
+  repeated int32 relatedReplicas = 9; // the id of the related replicas
+
 }
 //Used for client to pass its info, so that coordinator know how to send back info
 // My need to be separated to other nodes during PreAccept TODO
@@ -73,6 +76,9 @@ message AcceptResp{
 
 }
 message CommitReq{
+  Trans trans = 1;
+  TransTimestamp exT =2;
+  Deps deps = 3;
 
 }
 message ReadReq{
