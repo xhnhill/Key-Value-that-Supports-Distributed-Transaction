@@ -31,6 +31,17 @@ type Transaction struct {
 	fVotes  int // votes satisfy the fast quorum
 
 }
+
+// Extract the keys and save it as string in the keys field of Transaction
+func (tr *Transaction) updateKeys() {
+	keySet := genKeySet(tr.in_trans)
+	var keys []string
+	for k, _ := range keySet {
+		keys = append(keys, k)
+	}
+	tr.keys = keys
+}
+
 type TimeoutTask struct {
 	fc    func(Transaction)
 	trans Transaction
@@ -119,11 +130,37 @@ func (trans *Transaction) getKeys() {
 
 }
 
+// Register the transaction in the conflict keymap
+// This process only happens in PreAccept phase
+func (st *StateMachine) registerConflicts(trans *Transaction) {
+	keys := trans.keys
+	transId := trans.in_trans.Id
+	for i := 0; i < len(keys); i++ {
+		ls := st.conflictMap[keys[i]]
+		st.conflictMap[keys[i]] = append(ls, transId)
+	}
+}
+
 // Generate conflict trans
 // Judge the return
 // Use the inverted index to find the conflicts
-func (st *StateMachine) getConflicts(trans *Transaction) []*string {
-
+func (st *StateMachine) getConflicts(trans *Transaction) []string {
+	keys := trans.keys
+	transId := trans.in_trans.Id
+	var cMap map[string]bool
+	var conflicts []string
+	for i := 0; i < len(keys); i++ {
+		ls := st.conflictMap[keys[i]]
+		for j := 0; j < len(ls); j++ {
+			if ls[j] != transId {
+				cMap[ls[j]] = true
+			}
+		}
+	}
+	for k, _ := range cMap {
+		conflicts = append(conflicts, k)
+	}
+	return conflicts
 }
 
 //TODO a function to union the deps
@@ -292,12 +329,34 @@ func (st *StateMachine) processTick(msg *pb.Message) {
 	//TODO Send heart beats, which acts as a weak failure detector
 }
 
+// The timestamp should not be equal, true means t1 >t2
+func compareTimestamp(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
+	tp1 := t1.TimeStamp.AsTime()
+	tp2 := t2.TimeStamp.AsTime()
+	if tp1.Equal(tp2) {
+		if t1.Seq == t2.Seq {
+			return t1.Id > t2.Id
+		} else {
+			return t1.Seq > t2.Seq
+		}
+	} else {
+		return tp1.After(tp2)
+	}
+}
+
 // TODO process the PreAccept Request
 func (st *StateMachine) processPreAccept(req *pb.Message) {
+	var innerTrans *pb.Trans
+	proto.Unmarshal(req.Data, innerTrans)
 	//Register the transaction as witnesses
-
+	st.registerTrans(Witnessed, innerTrans)
+	trans := st.w_trans[innerTrans.Id]
 	//Update the transaction
+	// Update the keys of the transaction, in case of finding conlicting transa
+	trans.updateKeys()
 	//check conflicts of transactions
+	conflicts := st.getConflicts(trans)
+	//compare and set t(trans) and T(trans)
 }
 
 // TODO process PreAcceptOk
