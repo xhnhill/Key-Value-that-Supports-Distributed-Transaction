@@ -25,6 +25,24 @@ var (
 	mode       = flag.Bool("mode", false, "True indicates in the debug mode")
 )
 
+var msgTypeToString = map[pb.MsgType]string{
+	pb.MsgType_PreAccept:   "PreAccept",
+	pb.MsgType_Accept:      "Accept",
+	pb.MsgType_Commit:      "Commit",
+	pb.MsgType_Read:        "Read",
+	pb.MsgType_Apply:       "Apply",
+	pb.MsgType_Recover:     "Recover",
+	pb.MsgType_Tick:        "Tick",
+	pb.MsgType_PreAcceptOk: "PreAcceptOk",
+	pb.MsgType_AcceptOk:    "AcceptOk",
+	pb.MsgType_CommitOk:    "CommitOk",
+	pb.MsgType_ReadOk:      "ReadOk",
+	pb.MsgType_ApplyOk:     "ApplyOk",
+	pb.MsgType_RecoverOk:   "RecoverOk",
+	pb.MsgType_SubmitTrans: "SubmitTrans",
+	pb.MsgType_HeartBeat:   "HeartBeat",
+}
+
 type Node struct {
 	nodeId int
 	addr   string
@@ -151,7 +169,7 @@ func (ser *Server) generateShards(n int) {
 
 }
 
-func startTicker(inCh chan *pb.Message) *time.Ticker {
+func (ser *Server) startTicker(inCh chan *pb.Message) *time.Ticker {
 	ticker := time.NewTicker(time.Second)
 
 	for {
@@ -169,6 +187,7 @@ func startTicker(inCh chan *pb.Message) *time.Ticker {
 				Data: data,
 			}
 			inCh <- &req
+			log.Printf("Send Tick Msg on Node %d", ser.node.nodeId)
 		}
 	}
 
@@ -228,16 +247,17 @@ func (ser *Server) performRPC() {
 			// TODO maybe need to wrap the sending, in case sending fail
 			// TODO anything we need to add to context?
 			f := func(node *Node, msg *pb.Message) {
+				log.Printf("Send %s from Node%d to Node%d", msgTypeToString[msg.Type], node.nodeId, msg.To)
 				//TODO error handling here
 				_, err := node.client.SendReq(context.Background(), msg)
 				if err != nil {
-					log.Fatalf(" Could not use rpc on node %d with err %v", node.nodeId, err)
+					log.Printf(ERROR+" Could not use rpc on node %d with err %v", node.nodeId, err)
 					return
 				} else {
 					// Perform heartbeat update here
 					if rpc.Type == pb.MsgType_HeartBeat {
-						var heartbeat pb.HeartbeatMsg
-						ser.stateMachine.recvHeartbeatResponse()
+
+						ser.stateMachine.recvHeartbeatResponse(msg.To)
 					}
 				}
 			}
@@ -282,7 +302,7 @@ func main() {
 	}
 	// Start the timer here
 	if !*mode {
-		go startTicker(localServer.inCh)
+		go localServer.startTicker(localServer.inCh)
 	}
 	nodes = createClients(nodes)
 	localServer.updatePeerClients(nodes)

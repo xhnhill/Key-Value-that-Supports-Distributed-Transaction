@@ -127,6 +127,8 @@ type StateMachine struct {
 	T map[string]*pb.TransTimestamp
 	// conflicting keys, which register key - transaction relationship
 	conflictMap map[string][]string
+	//current tick number, when greater than 10, send heartbeat msg
+	tickNum int
 }
 
 // Get keys of the transaction
@@ -366,6 +368,29 @@ func (st *StateMachine) processTick(msg *pb.Message) {
 	st.modifyAndCheck(-1, -1)
 
 	//TODO Send heart beats, which acts as a weak failure detector
+	st.tickHeartbeat()
+
+}
+func (st *StateMachine) tickHeartbeat() {
+	st.peerStatus.mu.Lock()
+	defer st.peerStatus.mu.Unlock()
+	var msgs []*pb.Message
+	st.tickNum++
+	if st.tickNum < 10 {
+		return
+	}
+	st.tickNum = 0
+	for k, _ := range st.peerStatus.peers {
+		heartBeat := &pb.HeartbeatMsg{To: k}
+		data, _ := proto.Marshal(heartBeat)
+		msgs = append(msgs, &pb.Message{
+			Type: pb.MsgType_HeartBeat,
+			Data: data,
+			From: st.id,
+			To:   k,
+		})
+	}
+	st.sendMsgs(msgs)
 }
 
 // TODO write unit test for this function
