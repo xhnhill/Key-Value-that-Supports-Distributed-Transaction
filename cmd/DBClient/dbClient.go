@@ -4,6 +4,7 @@ import (
 	pb "Distributed_Key_Value_Store/cmd/Primitive"
 	"context"
 	"flag"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
@@ -46,11 +47,16 @@ func generateWrite(keys []string, vals []string) []*pb.WriteOp {
 	}
 	return writes
 }
+func genUUID() string {
+	id := uuid.New()
+	return id.String()
+
+}
 func generateTrans(rKeys []string, wKeys []string, wVals []string, clt *pb.NodeInfo) *pb.Trans {
 	reads := generateRead(rKeys)
 	writes := generateWrite(wKeys, wVals)
 	return &pb.Trans{
-
+		CId:        genUUID(),
 		Reads:      reads,
 		Writes:     writes,
 		St:         pb.TranStatus_New,
@@ -87,7 +93,7 @@ func sendMsg(data []byte, tar pb.CoordinateClient) {
 	_, err := tar.SendReq(ctx, &msg)
 	if err != nil {
 		// TODO we may need extra info??
-		log.Fatal("Sending failed")
+		log.Fatal("Sending failed, %v", err)
 		return
 	}
 	log.Printf("Received the resp")

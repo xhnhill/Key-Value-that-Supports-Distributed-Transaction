@@ -12,11 +12,13 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
+	"math"
 	"math/big"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -131,6 +133,17 @@ func min(a, b int) int {
 	return b
 }
 
+func extendBytes(bytes []byte, n int) []byte {
+	diff := n - len(bytes)
+	if diff < 0 {
+		diff = 0
+	}
+	for i := 0; i < diff; i++ {
+		bytes = append(bytes, 0x0)
+	}
+	return bytes
+}
+
 // Allocate shards
 func (ser *Server) generateShards(n int) {
 	// Generate array full of bytes, n indicates the array length
@@ -143,7 +156,7 @@ func (ser *Server) generateShards(n int) {
 	q := new(big.Int).Div(x, big.NewInt(int64(*shardsNum)))
 	sum := big.NewInt(0)
 	nodesNum := len(ser.peers)
-	unit := nodesNum / (*shardsNum)
+	unit := int(math.Ceil(float64(nodesNum) / float64(*shardsNum)))
 	for i := 0; i < *shardsNum; i++ {
 		var replicas []int32
 		for j := i * unit; j < min((i+1)*unit, nodesNum); j++ {
@@ -159,20 +172,22 @@ func (ser *Server) generateShards(n int) {
 			ed = arr
 		}
 		shard := pb.ShardInfo{
-			Start:    st,
-			End:      ed,
+			Start:    extendBytes(st, n),
+			End:      extendBytes(ed, n),
 			ShardId:  int32(i),
 			Replicas: replicas,
 		}
 		shards = append(shards, &shard)
 	}
 	ser.stateMachine.shards = shards
-	ser.stateMachine.curShard = shards[ser.node.nodeId/(*shardsNum)]
+	//Consider 1 based index
+	ser.stateMachine.curShard = shards[(ser.node.nodeId-1)/unit]
 
 }
 
 func (ser *Server) startTicker(inCh chan *pb.Message) *time.Ticker {
-	ticker := time.NewTicker(time.Second)
+	//TODO please modify back after debugging
+	ticker := time.NewTicker(60 * time.Second)
 
 	for {
 		select {
@@ -206,7 +221,8 @@ func createClients(nodes []Node) []Node {
 				time.Sleep(10 * time.Second)
 			} else {
 				nodes[i].client = pb.NewCoordinateClient(conn)
-				log.Printf("Node %d connect successful", nodes[i].nodeId)
+				//TODO this step seems does not mean the other node is alive
+				//log.Printf("Node %d connect successful", nodes[i].nodeId)
 				break
 			}
 		}
@@ -215,6 +231,7 @@ func createClients(nodes []Node) []Node {
 	return nodes
 }
 func (ser *Server) updatePeerClients(nodes []Node) {
+
 	for i := 0; i < len(nodes); i++ {
 		ser.peers[nodes[i].nodeId] = &nodes[i]
 	}
@@ -225,7 +242,7 @@ func (ser *Server) updatePeerClients(nodes []Node) {
 func (ser *Server) createAndConnUserClient(userInfo *pb.NodeInfo) {
 	conn, err := grpc.Dial(userInfo.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("Could not connect to user client %s", userInfo.Addr)
+		log.Printf("Could not connect to user client %s", userInfo.Addr)
 		return
 	}
 	userClient := pb.NewCoordinateClient(conn)
@@ -245,7 +262,7 @@ func (ser *Server) performRPC() {
 	for {
 		rpc, ok := <-ser.outCh
 		if !ok {
-			log.Fatalf("output channel closed on server %d", ser.node.nodeId)
+			log.Printf("output channel closed on server %d", ser.node.nodeId)
 			return
 		}
 		tarNodeId := int(rpc.To)
@@ -272,7 +289,7 @@ func (ser *Server) performRPC() {
 			go f(tarNode, rpc)
 
 		} else {
-			log.Fatalf("Fail to perform rpc on node %d because no connection", tarNodeId)
+			log.Printf("Fail to perform rpc on node %d because no connection", tarNodeId)
 
 		}
 
@@ -303,9 +320,28 @@ func main() {
 		return
 	}
 	localServer := &Server{
-		node:  cur,
-		inCh:  make(chan *pb.Message, 0),
-		outCh: make(chan *pb.Message, 0),
+		node:    cur,
+		inCh:    make(chan *pb.Message, 0),
+		outCh:   make(chan *pb.Message, 0),
+		peers:   make(map[int]*Node),
+		clients: make(map[string]*Node),
+		stateMachine: &StateMachine{
+			id:       int32(cur.nodeId),
+			m_trans:  make(map[string]*Transaction),
+			w_trans:  make(map[string]*Transaction),
+			ballot:   0,
+			shards:   make([]*pb.ShardInfo, 0, 6),
+			curShard: &pb.ShardInfo{},
+			inCh:     nil,
+			outCh:    nil,
+			peerStatus: &PeerStatus{
+				mu:    sync.Mutex{},
+				peers: make(map[int32]*Peer),
+			},
+			T:           make(map[string]*pb.TransTimestamp),
+			conflictMap: make(map[string][]string),
+			tickNum:     0,
+		},
 	}
 	log.Printf("Node %d, begin to load and address is %s"+": %d", nodeId, ip, port)
 	//server begin to serve
@@ -316,13 +352,19 @@ func main() {
 	s := grpc.NewServer()
 	pb.RegisterCoordinateServer(s, localServer)
 	log.Printf("server listening at %v", lis.Addr())
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+	f := func() {
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
 	}
+	go f()
+
 	// Start the timer here
 	if !*mode {
 		go localServer.startTicker(localServer.inCh)
 	}
+	//TODO May wait for 60s to let server startup
+	//time.Sleep(20 * time.Second)
 	nodes = createClients(nodes)
 	localServer.updatePeerClients(nodes)
 	// Start a go routine to send gRPC calls

@@ -204,22 +204,19 @@ func (st *StateMachine) generateTransId(t *pb.TransTimestamp) *string {
 func (st *StateMachine) recvTrans(req *pb.Message) {
 
 	//UnMarshall trans
-	var trans pb.Trans
-	proto.Unmarshal(req.Data, &trans)
+	trans := &pb.Trans{}
+	proto.Unmarshal(req.Data, trans)
 	// Preprocess transactions
-	trans.T0 = st.generateTimestamp()
-	trans.Id = *st.generateTransId(trans.T0)
 	trans.St = pb.TranStatus_New
-	//Register transaction as managed transaction
-	st.registerTrans(Managed, &trans)
 	// TODO calculate Electorates
-	e := st.getRelatedReplicas(&trans)
+	e := st.getRelatedReplicas(trans)
 	//update the related replicas in the innerTrans
 	trans.RelatedReplicas = e
 	//TODO Optimize the configuration process
 	//Set electorates size of the transaction
 	trans.EleSize = int32(len(e))
-	preAccepts := st.sendPreAccept(e, &trans)
+	//Will set to,Id and register in the sendPreAccept function
+	preAccepts := st.sendPreAccept(e, trans)
 	st.sendMsgs(preAccepts)
 	//Begin to set timeout for fast quorum
 	curTrans := st.m_trans[trans.Id]
@@ -316,6 +313,7 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 	var msgs []*pb.Message
 	t0 := st.generateTimestamp()
 	trans.Id = *st.generateTransId(t0)
+	st.registerTrans(Managed, trans)
 	preAccept := pb.PreAcceptReq{
 		Trans: trans,
 		T0:    t0,
@@ -335,7 +333,8 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 // TODO process tick message
 func (st *StateMachine) processTick(msg *pb.Message) {
 	//UnMarshal the msg
-	var tickMsg *pb.TickMsg
+
+	tickMsg := &pb.TickMsg{}
 	proto.Unmarshal(msg.Data, tickMsg)
 	//TODO check and deal with timeout transactions
 	//TODO Timeout for fast quorum
@@ -425,6 +424,7 @@ func copyTransTimestamp(timestamp *pb.TransTimestamp) *pb.TransTimestamp {
 // TODO process the PreAccept Request
 func (st *StateMachine) processPreAccept(req *pb.Message) {
 	var innerTrans *pb.Trans
+	innerTrans = &pb.Trans{}
 	proto.Unmarshal(req.Data, innerTrans)
 	//Register the transaction as witnesses
 	st.registerTrans(Witnessed, innerTrans)
@@ -529,6 +529,7 @@ func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 // TODO process PreAcceptOk
 func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	var preAcceptOk *pb.PreAcceptResp
+	preAcceptOk = &pb.PreAcceptResp{}
 	proto.Unmarshal(req.Data, preAcceptOk)
 	//TODO think about what if this node doesn't see this trans
 	curTrans := st.m_trans[preAcceptOk.TransId]
@@ -610,7 +611,7 @@ func (st *StateMachine) mainLoop(inCh chan *pb.Message, outCh chan *pb.Message) 
 	for {
 		val, ok := <-inCh
 		if !ok {
-			log.Fatal("The channel of the node has been closed, nodeId is %d", st.id)
+			log.Printf("The channel of the node has been closed, nodeId is %d", st.id)
 		}
 		st.executeReq(val)
 
