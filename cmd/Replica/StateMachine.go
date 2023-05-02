@@ -200,8 +200,8 @@ func (st *StateMachine) recvTrans(req *pb.Message) {
 	var trans pb.Trans
 	proto.Unmarshal(req.Data, &trans)
 	// Preprocess transactions
-	trans.Timestamp = st.generateTimestamp()
-	trans.Id = *st.generateTransId(trans.Timestamp)
+	trans.T0 = st.generateTimestamp()
+	trans.Id = *st.generateTransId(trans.T0)
 	trans.St = pb.TranStatus_New
 	//Register transaction as managed transaction
 	st.registerTrans(Managed, &trans)
@@ -373,7 +373,7 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	//compare and set t(trans) and T(trans)
 	// May need to copy a timestamp, because we will modify it
 
-	tTrans := copyTransTimestamp(innerTrans.Timestamp)
+	tTrans := copyTransTimestamp(innerTrans.T0)
 	for i := 0; i < len(conflicts); i++ {
 		// Compare with T
 		tarTimestamp := st.T[conflicts[i]]
@@ -388,19 +388,33 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	//update the transaction status to PreAccepted
 	st.w_trans[innerTrans.Id].in_trans.St = pb.TranStatus_PreAccepted
 	//Send PreAcceptOk message
+	PreAcceptOk := &pb.PreAcceptResp{
+		T:    tTrans,
+		Deps: st.genDepsPreAccept(conflicts, innerTrans.T0),
+	}
+	data, _ := proto.Marshal(PreAcceptOk)
+	var msgs []*pb.Message
+	msgs = append(msgs, &pb.Message{
+		Type: pb.MsgType_PreAcceptOk,
+		Data: data,
+		From: st.id,
+		To:   req.From,
+	})
+	st.sendMsgs(msgs)
 
 }
 
 // Generate deps of trans in processing PreAccept phase
 // According to paper, should use t0 to filter
-func (st *StateMachine) genDepsPreAccept(cfl []string, t0 *pb.TransTimestamp) {
+func (st *StateMachine) genDepsPreAccept(cfl []string, t0 *pb.TransTimestamp) *pb.Deps {
 	var deps []string
 	for i := 0; i < len(cfl); i++ {
-		tarTrans := st.w_trans[cfl[i]].in_trans.Timestamp
-		if compareTimestamp(t0) {
-
+		tarT0 := st.w_trans[cfl[i]].in_trans.T0
+		if compareTimestamp(t0, tarT0) {
+			deps = append(deps, cfl[i])
 		}
 	}
+	return &pb.Deps{Ids: deps}
 }
 
 // TODO process PreAcceptOk
