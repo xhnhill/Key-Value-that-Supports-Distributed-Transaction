@@ -15,10 +15,17 @@ message ReadOp{
   string key = 1;
 
 }
+message ReadResult{
+  string key =1;
+  string val = 2;
+}
 // TODO Add more complex operation to WriteOp
 message WriteOp{
   string key =1;
   string val = 2;
+}
+message Result{
+  repeated string res =1;
 }
 //TODO check if more fields are needed
 message Deps{
@@ -75,7 +82,8 @@ message AcceptReq{
   Deps deps = 3;
 }
 message AcceptResp{
-
+  Deps deps = 1;
+  string transId =2;
 }
 message CommitReq{
   Trans trans = 1;
@@ -84,12 +92,19 @@ message CommitReq{
 
 }
 message ReadReq{
-
+  Trans trans =1;
+  TransTimestamp exT =2;
+  Deps deps = 3;
 }
 message ReadResp{
-
+  repeated ReadResult reads =1;
 }
 message ApplyReq{
+  Trans trans =1;
+  TransTimestamp exT =2;
+  Deps deps_p = 3;
+  Result res = 4;
+
 
 }
 message RecoverReq{

@@ -575,6 +575,43 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 
 }
 
+func (st *StateMachine) commitMessage(req *pb.Message) {
+	commitMsg := &pb.CommitReq{}
+	proto.Unmarshal(req.Data, commitMsg)
+	transId := commitMsg.Trans.Id
+	//Modify the status of the transaction
+	st.w_trans[transId].in_trans.St = pb.TranStatus_Commited
+	//TODO Any other thing that need to be done?
+}
+
+// TODO Send read requests
+// TODO optimize the nearby configuration
+func (st *StateMachine) sendReads() {
+
+}
+
+// TODO perform read operations
+func (st *StateMachine) processRead(req *pb.Message) {
+
+}
+
+// TODO trigger the waiting trans to examine execution condition
+// Trans may wait during processing Read
+func (st *StateMachine) transTrigger() {
+
+}
+
+// TODO process readOk
+func (st *StateMachine) processReadOk(req *pb.Message) {
+
+	//TODO send results to clients
+}
+
+// TODO process apply message
+func (st *StateMachine) processApply(req *pb.Message) {
+
+}
+
 // Receive heartbeat response
 func (st *StateMachine) recvHeartbeatResponse(nodeId int32) {
 	//TODO update the node status monitored by statemachine
@@ -589,13 +626,21 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 		log.Printf("Receive PreAcceptOk Msg from %d", req.From)
 		st.processPreAcceptOk(req)
 	case pb.MsgType_Accept:
-		log.Printf("Receive req")
+		log.Printf("Receive Accept Msg from %d", req.From)
+	case pb.MsgType_AcceptOk:
+		log.Printf("Receive AcceptOk Msg from %d", req.From)
 	case pb.MsgType_Commit:
-		log.Printf("Receive req")
+		log.Printf("Receive Commit Msg from %d", req.From)
+		st.commitMessage(req)
 	case pb.MsgType_Read:
-		log.Printf("Receive req")
+		log.Printf("Receive Read Msg from %d", req.From)
+		st.processRead(req)
+	case pb.MsgType_ReadOk:
+		log.Printf("Receive ReadOk Msg from %d", req.From)
+		st.processReadOk(req)
 	case pb.MsgType_Apply:
-		log.Printf("Receive req")
+		log.Printf("Receive Apply Msg from %d", req.From)
+		st.processApply(req)
 	case pb.MsgType_Recover:
 		log.Printf("Receive req")
 	case pb.MsgType_Tick:
