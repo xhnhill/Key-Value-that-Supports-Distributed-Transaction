@@ -8,9 +8,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"log"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -112,6 +114,37 @@ func getServerClient(serAddr string) pb.CoordinateClient {
 
 type cltServer struct {
 	pb.UnimplementedCoordinateServer
+	transMap map[string]chan []*pb.SingleResult
+	mu       sync.Mutex
+}
+
+func convertRes2Str(res []*pb.SingleResult) string {
+	str := ""
+	for i := 0; i < len(res); i++ {
+		str = str + "key: " + res[i].Key + " Val: " + res[i].Val + "\n"
+	}
+	return str
+}
+func (s *cltServer) blockRead(trans *pb.Trans, clt pb.CoordinateClient) {
+	rawMsg, _ := proto.Marshal(trans)
+	sendMsg(rawMsg, clt)
+	s.mu.Lock()
+	waitCh := make(chan []*pb.SingleResult, 1)
+	s.transMap[trans.CId] = waitCh
+	s.mu.Unlock()
+	res := <-waitCh
+	log.Printf(convertRes2Str(res))
+}
+func (s *cltServer) SendReq(ctx context.Context, in *pb.Message) (*emptypb.Empty, error) {
+	finalRes := &pb.FinalRes{}
+	proto.Unmarshal(in.Data, finalRes)
+	cId := finalRes.CId
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ch := s.transMap[cId]
+	ch <- finalRes.Res
+	return &emptypb.Empty{}, nil
+
 }
 
 // TODO optimize the client to be thread safe
@@ -122,7 +155,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen on client: %v", err)
 	}
-	localServer := &cltServer{}
+	localServer := &cltServer{
+		transMap: make(map[string]chan []*pb.SingleResult),
+		mu:       sync.Mutex{},
+	}
 	s := grpc.NewServer()
 	pb.RegisterCoordinateServer(s, localServer)
 	log.Printf("server listening at %v", lis.Addr())
@@ -135,8 +171,7 @@ func main() {
 	// calling part
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
 	rdTrans := generateRandomTrans(&clt.nodeinfo)
-	rawMsg, _ := proto.Marshal(rdTrans)
 	ser := getServerClient(*server)
-	sendMsg(rawMsg, ser)
+	localServer.blockRead(rdTrans, ser)
 
 }
