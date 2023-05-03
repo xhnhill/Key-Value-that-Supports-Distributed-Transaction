@@ -266,6 +266,12 @@ func (ser *Server) performRPC() {
 			return
 		}
 		tarNodeId := int(rpc.To)
+		//Avoid network for the msg sending to self
+		if rpc.To == ser.stateMachine.id {
+			ser.inCh <- rpc
+			log.Printf("Send %s from Node%d to Node%d", msgTypeToString[rpc.Type], rpc.To, rpc.To)
+			continue
+		}
 		// TODO maybe we need read write lock here?
 		tarNode, exist := ser.peers[tarNodeId]
 		if exist {

@@ -36,7 +36,8 @@ type Transaction struct {
 	failsNum  int                //Number of failed peers
 	collectT  *pb.TransTimestamp // Used in the PreAccept which collects max t from PreAcceptOK
 	//TODO optimize in the final version, use former deps instead
-	acceptDeps map[string]bool //Used to collect deps in collecting AcceptOk stage
+	acceptDeps  map[string]bool //Used to collect deps in collecting AcceptOk stage
+	acceptVotes int             // Count votes in AcceptOk stage
 }
 
 // Extract the keys and save it as string in the keys field of Transaction
@@ -343,6 +344,8 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 			To:   tars[i],
 		})
 	}
+	//Update trans status
+	trans.St = pb.TranStatus_PreAccepted
 	return msgs
 }
 
@@ -529,7 +532,14 @@ func (st *StateMachine) convDepsSet(depsSet map[string]bool) []string {
 // Because timeout, msgs may duplicate
 // Receiver should be able to filter
 func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
+	// Check if is the correct stage
+	if curTrans.in_trans.St != pb.TranStatus_PreAccepted &&
+		curTrans.in_trans.St != pb.TranStatus_New {
+		return
+	}
 	if curTrans.votes >= curTrans.config.classSize {
+		//Update the final version of Execution time
+		curTrans.in_trans.ExT = copyTransTimestamp(curTrans.collectT)
 		accMsg := &pb.AcceptReq{
 			Trans: curTrans.in_trans,
 			ExT:   curTrans.collectT,
@@ -537,7 +547,7 @@ func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 		}
 		//send acceptMsg
 		data, _ := proto.Marshal(accMsg)
-		var msgs []*pb.Message
+		msgs := make([]*pb.Message, 0, len(curTrans.in_trans.RelatedReplicas))
 		for i := 0; i < len(curTrans.in_trans.RelatedReplicas); i++ {
 			msgs = append(msgs, &pb.Message{
 				Type: pb.MsgType_Accept,
@@ -547,6 +557,9 @@ func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 			})
 		}
 		st.sendMsgs(msgs)
+		//update current trans status avoid further votes
+		curTrans.in_trans.St = pb.TranStatus_Accepted
+		//TODO clear votes, because votes will be used in AcceptOk stage
 	}
 }
 
@@ -631,6 +644,36 @@ func (st *StateMachine) processAccept(req *pb.Message) {
 	})
 	st.sendMsgs(msgs)
 
+}
+func (st *StateMachine) checkAcceptOkVotes(curTrans *Transaction) {
+	if curTrans.in_trans.St != pb.TranStatus_Accepted {
+		//TODO log?
+		return
+	}
+	curTrans.acceptVotes++
+	if curTrans.acceptVotes >= curTrans.config.classSize {
+		//Pay attention, the Ext is the final decided version of collectT in outer Trans
+		commitMsg := &pb.CommitReq{
+			Trans: curTrans.in_trans,
+			ExT:   curTrans.in_trans.ExT,
+			Deps:  &pb.Deps{Ids: st.convDepsSet(curTrans.acceptDeps)},
+		}
+		data, _ := proto.Marshal(commitMsg)
+		msgs := make([]*pb.Message, 0, 6)
+		//TODO the sending logics may be optimized, and send only to needed peers
+		for i := 0; i < len(curTrans.in_trans.RelatedReplicas); i++ {
+			msgs = append(msgs, &pb.Message{
+				Type: pb.MsgType_Commit,
+				Data: data,
+				From: st.id,
+				To:   curTrans.in_trans.RelatedReplicas[i],
+			})
+		}
+		st.sendMsgs(msgs)
+		//Update local status to committed
+		curTrans.in_trans.St = pb.TranStatus_Commited
+
+	}
 }
 
 // TODO Process AcceptOk message
