@@ -37,9 +37,10 @@ type Transaction struct {
 	failsNum  int                //Number of failed peers
 	collectT  *pb.TransTimestamp // Used in the PreAccept which collects max t from PreAcceptOK
 	//TODO optimize in the final version, use former deps instead
-	acceptDeps  map[string]bool    //Used to collect deps in collecting AcceptOk stage
-	acceptVotes int                // Count votes in AcceptOk stage
-	readRes     map[int32][]string //store read result according to shards
+	acceptDeps    map[string]bool    //Used to collect deps in collecting AcceptOk stage
+	acceptVotes   int                // Count votes in AcceptOk stage
+	readRes       map[int32][]string //store read result according to shards
+	collectShards map[int32]bool     // store the already collected shards reads, used in readOk phase
 }
 
 // Extract the keys and save it as string in the keys field of Transaction
@@ -303,11 +304,14 @@ func (st *StateMachine) ifInShards(keySet map[string]bool, info *pb.ShardInfo) b
 func (st *StateMachine) getRelatedReplicas(trans *pb.Trans) []int32 {
 	var tars []int32
 	keySet := genKeySet(trans)
+	relatedShards := make([]int32, 0, 3)
 	for i := 0; i < len(st.shards); i++ {
 		if st.ifInShards(keySet, st.shards[i]) {
 			tars = append(tars, st.shards[i].Replicas...)
+			relatedShards = append(relatedShards, st.shards[i].ShardId)
 		}
 	}
+	trans.RelatedShards = relatedShards
 	return tars
 }
 
@@ -322,20 +326,21 @@ const (
 func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
 	//tr := &Transaction{in_trans: trans}
 	tr := &Transaction{
-		config:      Config{},
-		in_trans:    trans,
-		keys:        make([]string, 0, 6),
-		ifTimeout:   false,
-		endTime:     nil,
-		votes:       0,
-		fVotes:      0,
-		deps:        make(map[string]bool),
-		couldFast:   true,
-		failsNum:    0,
-		collectT:    trans.T0,
-		acceptDeps:  make(map[string]bool),
-		acceptVotes: 0,
-		readRes:     make(map[int32][]string),
+		config:        Config{},
+		in_trans:      trans,
+		keys:          make([]string, 0, 6),
+		ifTimeout:     false,
+		endTime:       nil,
+		votes:         0,
+		fVotes:        0,
+		deps:          make(map[string]bool),
+		couldFast:     true,
+		failsNum:      0,
+		collectT:      trans.T0,
+		acceptDeps:    make(map[string]bool),
+		acceptVotes:   0,
+		readRes:       make(map[int32][]string),
+		collectShards: make(map[int32]bool),
 	}
 	switch t {
 	case Managed:
@@ -742,6 +747,8 @@ func (st *StateMachine) commitMessage(req *pb.Message) {
 // TODO optimize the nearby configuration, because may need to deal
 // with sudden broken connect
 func (st *StateMachine) sendReads(curTrans *Transaction, deps *pb.Deps) {
+	// Save deps to innerTrans, because it is decided yet
+	curTrans.in_trans.Deps = deps
 	readMsg := &pb.ReadReq{
 		Trans: curTrans.in_trans,
 		ExT:   curTrans.in_trans.ExT,
@@ -783,6 +790,7 @@ func (st *StateMachine) processRead(req *pb.Message) {
 	readMsg := &pb.ReadReq{}
 	proto.Unmarshal(req.Data, readMsg)
 	curTrans := st.m_trans[readMsg.Trans.Id]
+	//TODO modify here, we only needs the read keys!!
 	fKeys := st.filterReadKey(curTrans)
 	//TODO wait operations
 
@@ -809,7 +817,10 @@ func (st *StateMachine) processRead(req *pb.Message) {
 
 	})
 	//Prepare readOk msgs
-	readOk := &pb.ReadResp{Res: reads}
+	readOk := &pb.ReadResp{
+		Res:     reads,
+		TransId: curTrans.in_trans.Id,
+	}
 	data, _ := proto.Marshal(readOk)
 	msgs := make([]*pb.Message, 0, 1)
 	msgs = append(msgs, &pb.Message{
@@ -828,10 +839,59 @@ func (st *StateMachine) transTrigger() {
 
 }
 
+func (st *StateMachine) getReplicasOfShard(shardId int32) []int32 {
+	shards := st.shards
+	tars := make([]int32, 0, 3)
+	for i := 0; i < len(shards); i++ {
+		if shardId == shards[i].ShardId {
+			tars = append(tars, shards[i].Replicas...)
+			break
+		}
+	}
+	return tars
+}
+
 // TODO process readOk
 func (st *StateMachine) processReadOk(req *pb.Message) {
-
+	//TODO more complex execute operations should leave to further development
 	//TODO send results to clients
+	readOk := &pb.ReadResp{}
+	proto.Unmarshal(req.Data, readOk)
+	curTrans := st.m_trans[readOk.TransId]
+	fromShard := st.shardMap[req.From]
+	_, ok := curTrans.collectShards[fromShard]
+	if ok {
+		//filtered already counted shard
+		return
+	} else {
+		curTrans.collectShards[fromShard] = true
+		// Send Apply request to replicas of these shards
+		tars := st.getReplicasOfShard(fromShard)
+		applyMsg := &pb.ApplyReq{
+			Trans: curTrans.in_trans,
+			ExT:   curTrans.in_trans.ExT,
+			DepsP: curTrans.in_trans.Deps,
+			Res:   readOk.Res,
+		}
+		data, _ := proto.Marshal(applyMsg)
+		msgs := make([]*pb.Message, 0, 3)
+		for i := 0; i < len(tars); i++ {
+			msgs = append(msgs, &pb.Message{
+				Type: pb.MsgType_Apply,
+				Data: data,
+				From: st.id,
+				To:   tars[i],
+			})
+		}
+		st.sendMsgs(msgs)
+
+	}
+	//Check if all data is collected
+	//TODO optimize the return logic to clients
+	if len(curTrans.collectShards) == len(curTrans.in_trans.RelatedShards) {
+		//TODO return results to clients
+
+	}
 }
 
 // TODO process apply message
