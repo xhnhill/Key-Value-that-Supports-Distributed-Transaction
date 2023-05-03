@@ -31,7 +31,11 @@ message Result{
 //TODO Modify for waiting condition
 message Deps{
   //The id of conflicting transactions
-  repeated string ids = 1;
+  repeated DepsItem items = 1;
+}
+message DepsItem{
+  string id = 1;
+  repeated int32 shards= 2;
 }
 //TODO design reads part and writes
 message Trans{

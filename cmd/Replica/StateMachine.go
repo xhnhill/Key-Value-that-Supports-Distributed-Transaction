@@ -41,6 +41,8 @@ type Transaction struct {
 	acceptVotes   int                // Count votes in AcceptOk stage
 	readRes       map[int32][]string //store read result according to shards
 	collectShards map[int32]bool     // store the already collected shards reads, used in readOk phase
+	ifWait        bool               // labels if the transaction is in the waiting status, only used in await of (Read/Apply)
+	replyTo       int32              // the same with ifWait, used only in read/apply phase
 }
 
 // Extract the keys and save it as string in the keys field of Transaction
@@ -537,36 +539,52 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 // Generate deps of trans in processing PreAccept phase
 // According to paper, should use t0 to filter
 func (st *StateMachine) genDepsPreAccept(cfl []string, t0 *pb.TransTimestamp) *pb.Deps {
-	var deps []string
+	deps := make([]*pb.DepsItem, 0, 3)
 	for i := 0; i < len(cfl); i++ {
-		tarT0 := st.w_trans[cfl[i]].in_trans.T0
+		cpTrans := st.w_trans[cfl[i]].in_trans
+		tarT0 := cpTrans.T0
 		if compareTimestamp(t0, tarT0) {
-			deps = append(deps, cfl[i])
+			deps = append(deps, &pb.DepsItem{
+				Id:     cfl[i],
+				Shards: cpTrans.RelatedShards,
+			})
 		}
 	}
-	return &pb.Deps{Ids: deps}
+	return &pb.Deps{Items: deps}
 }
 
 // update corresponding deps in transaction with transId
-func (st *StateMachine) updateDeps(cfl []string, trans *Transaction) {
+func (st *StateMachine) updateDeps(cfl []*pb.DepsItem, trans *Transaction) {
 	for i := 0; i < len(cfl); i++ {
-		trans.deps[cfl[i]] = true
+		trans.deps[cfl[i].Id] = true
 	}
 }
 
 // Update the deps in transaction at AcceptOk stage, use acceptDeps in Transaction
-func (st *StateMachine) updateDepsAcceptOk(cfl []string, trans *Transaction) {
+func (st *StateMachine) updateDepsAcceptOk(cfl []*pb.DepsItem, trans *Transaction) {
 	if trans.in_trans.St != pb.TranStatus_Accepted {
 		return
 	}
 	for i := 0; i < len(cfl); i++ {
-		trans.acceptDeps[cfl[i]] = true
+		trans.acceptDeps[cfl[i].Id] = true
 	}
 }
 func (st *StateMachine) convDepsSet(depsSet map[string]bool) []string {
 	var deps []string
 	for k, _ := range depsSet {
 		deps = append(deps, k)
+	}
+	return deps
+}
+
+func (st *StateMachine) genDepsWithTransId(curTrans *Transaction, ids []string) []*pb.DepsItem {
+	deps := make([]*pb.DepsItem, 0, 3)
+	for i := 0; i < len(ids); i++ {
+		tarTrans := st.w_trans[ids[i]]
+		deps = append(deps, &pb.DepsItem{
+			Id:     ids[i],
+			Shards: tarTrans.in_trans.RelatedShards,
+		})
 	}
 	return deps
 }
@@ -585,7 +603,7 @@ func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 		accMsg := &pb.AcceptReq{
 			Trans: curTrans.in_trans,
 			ExT:   curTrans.collectT,
-			Deps:  &pb.Deps{Ids: st.convDepsSet(curTrans.deps)},
+			Deps:  &pb.Deps{Items: st.genDepsWithTransId(curTrans, st.convDepsSet(curTrans.deps))},
 		}
 		//send acceptMsg
 		data, _ := proto.Marshal(accMsg)
@@ -612,6 +630,11 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	proto.Unmarshal(req.Data, preAcceptOk)
 	//TODO think about what if this node doesn't see this trans
 	curTrans := st.m_trans[preAcceptOk.TransId]
+	if !(curTrans.in_trans.St == pb.TranStatus_New ||
+		curTrans.in_trans.St == pb.TranStatus_PreAccepted) {
+		return
+	}
+	st.updateDeps(preAcceptOk.Deps.Items, curTrans)
 	//Update classical votes
 	curTrans.votes++
 	//update collectT proposed by PreAcceptOK
@@ -629,7 +652,7 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 		}
 		if curTrans.fVotes >= curTrans.config.fastSize {
 			//perform the fast path logic
-			deps := &pb.Deps{Ids: st.convDepsSet(curTrans.deps)}
+			deps := &pb.Deps{Items: st.genDepsWithTransId(curTrans, st.convDepsSet(curTrans.deps))}
 			commitMsg := &pb.CommitReq{
 				Trans: curTrans.in_trans,
 				ExT:   curTrans.in_trans.T0,
@@ -677,7 +700,7 @@ func (st *StateMachine) processAccept(req *pb.Message) {
 	fClfs := st.filterConflictsAccept(clfs, accept.ExT)
 	// Send AcceptOk
 	acceptOk := &pb.AcceptResp{
-		Deps:    &pb.Deps{Ids: fClfs},
+		Deps:    &pb.Deps{Items: st.genDepsWithTransId(curTrans, fClfs)},
 		TransId: transId,
 	}
 	data, _ := proto.Marshal(acceptOk)
@@ -699,7 +722,7 @@ func (st *StateMachine) checkAcceptOkVotes(curTrans *Transaction) {
 	curTrans.acceptVotes++
 	if curTrans.acceptVotes >= curTrans.config.classSize {
 		//Pay attention, the Ext is the final decided version of collectT in outer Trans
-		deps := &pb.Deps{Ids: st.convDepsSet(curTrans.acceptDeps)}
+		deps := &pb.Deps{Items: st.genDepsWithTransId(curTrans, st.convDepsSet(curTrans.acceptDeps))}
 		commitMsg := &pb.CommitReq{
 			Trans: curTrans.in_trans,
 			ExT:   curTrans.in_trans.ExT,
@@ -730,7 +753,7 @@ func (st *StateMachine) processAcceptOk(req *pb.Message) {
 	acceptOk := &pb.AcceptResp{}
 	proto.Unmarshal(req.Data, acceptOk)
 	curTrans := st.m_trans[acceptOk.TransId]
-	st.updateDepsAcceptOk(acceptOk.Deps.Ids, curTrans)
+	st.updateDepsAcceptOk(acceptOk.Deps.Items, curTrans)
 	st.checkAcceptOkVotes(curTrans)
 }
 
@@ -739,7 +762,10 @@ func (st *StateMachine) commitMessage(req *pb.Message) {
 	proto.Unmarshal(req.Data, commitMsg)
 	transId := commitMsg.Trans.Id
 	//Modify the status of the transaction
-	st.w_trans[transId].in_trans.St = pb.TranStatus_Commited
+	curTrans := st.w_trans[transId]
+	curTrans.in_trans.St = pb.TranStatus_Commited
+	//Update Execution time for innerTrans
+	curTrans.in_trans.ExT = commitMsg.ExT
 	//TODO Any other thing that need to be done?
 }
 
@@ -791,6 +817,50 @@ func (st *StateMachine) filterReadKey(trans *Transaction) []string {
 	return fKeys
 }
 
+func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
+	//Check if await condition satisfied
+	//TODO check commit await
+
+	//TODO check Applied await
+
+	fKeys := st.filterReadKey(curTrans)
+
+	reads := make([]*pb.SingleResult, 0, 3)
+	st.db.View(func(txn *badger.Txn) error {
+		var tmp []*pb.SingleResult
+		for i := 0; i < len(fKeys); i++ {
+			item, err := txn.Get([]byte(fKeys[i]))
+			if err != nil {
+				return err
+			} else {
+
+				valCopy, _ := item.ValueCopy([]byte{})
+				tmp = append(tmp, &pb.SingleResult{
+					Key: fKeys[i],
+					Val: string(valCopy),
+				})
+			}
+		}
+		reads = append(reads, tmp...)
+		return nil
+
+	})
+	//Prepare readOk msgs
+	readOk := &pb.ReadResp{
+		Res:     reads,
+		TransId: curTrans.in_trans.Id,
+	}
+	data, _ := proto.Marshal(readOk)
+	msgs := make([]*pb.Message, 0, 1)
+	msgs = append(msgs, &pb.Message{
+		Type: pb.MsgType_ReadOk,
+		Data: data,
+		From: st.id,
+		To:   curTrans.replyTo,
+	})
+	st.sendMsgs(msgs)
+}
+
 // TODO perform read operations, the execution logic
 // Current version needs to filter out the deps which is not on this shard
 // Because the node and shard is one-to-one relationship
@@ -798,6 +868,12 @@ func (st *StateMachine) processRead(req *pb.Message) {
 	readMsg := &pb.ReadReq{}
 	proto.Unmarshal(req.Data, readMsg)
 	curTrans := st.w_trans[readMsg.Trans.Id]
+	//Update deps locally according to Read request
+	curTrans.in_trans.Deps = readMsg.Deps
+	//update the outer transaction into waiting status, labeled by ifWait attribute
+	curTrans.ifWait = true
+	//update replyTo attribute of outer Trans
+	curTrans.replyTo = req.From
 	//TODO modify here, we only needs the read keys!!
 	fKeys := st.filterReadKey(curTrans)
 	//TODO wait operations
@@ -946,6 +1022,12 @@ func (st *StateMachine) processApply(req *pb.Message) {
 	applyMsg := &pb.ApplyReq{}
 	proto.Unmarshal(req.Data, applyMsg)
 	curTrans := st.w_trans[applyMsg.Trans.Id]
+	//Update deps of locally trans
+	curTrans.in_trans.Deps = applyMsg.DepsP
+	//update ifWait attribute of outer transaction
+	curTrans.ifWait = true
+	//update replyTo attribute of outer Trans
+	curTrans.replyTo = req.From
 	//TODO wait condition
 
 	// filtered the writes
