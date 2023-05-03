@@ -28,6 +28,7 @@ message Result{
   repeated string res =1;
 }
 //TODO check if more fields are needed
+//TODO Modify for waiting condition
 message Deps{
   //The id of conflicting transactions
   repeated string ids = 1;
