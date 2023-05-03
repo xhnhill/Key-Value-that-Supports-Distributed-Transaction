@@ -36,8 +36,9 @@ type Transaction struct {
 	failsNum  int                //Number of failed peers
 	collectT  *pb.TransTimestamp // Used in the PreAccept which collects max t from PreAcceptOK
 	//TODO optimize in the final version, use former deps instead
-	acceptDeps  map[string]bool //Used to collect deps in collecting AcceptOk stage
-	acceptVotes int             // Count votes in AcceptOk stage
+	acceptDeps  map[string]bool    //Used to collect deps in collecting AcceptOk stage
+	acceptVotes int                // Count votes in AcceptOk stage
+	readRes     map[int32][]string //store read result according to shards
 }
 
 // Extract the keys and save it as string in the keys field of Transaction
@@ -327,6 +328,7 @@ func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
 		collectT:    trans.T0,
 		acceptDeps:  make(map[string]bool),
 		acceptVotes: 0,
+		readRes:     make(map[int32][]string),
 	}
 	switch t {
 	case Managed:
@@ -542,6 +544,9 @@ func (st *StateMachine) updateDeps(cfl []string, trans *Transaction) {
 
 // Update the deps in transaction at AcceptOk stage, use acceptDeps in Transaction
 func (st *StateMachine) updateDepsAcceptOk(cfl []string, trans *Transaction) {
+	if trans.in_trans.St != pb.TranStatus_Accepted {
+		return
+	}
 	for i := 0; i < len(cfl); i++ {
 		trans.acceptDeps[cfl[i]] = true
 	}
@@ -682,10 +687,11 @@ func (st *StateMachine) checkAcceptOkVotes(curTrans *Transaction) {
 	curTrans.acceptVotes++
 	if curTrans.acceptVotes >= curTrans.config.classSize {
 		//Pay attention, the Ext is the final decided version of collectT in outer Trans
+		deps := &pb.Deps{Ids: st.convDepsSet(curTrans.acceptDeps)}
 		commitMsg := &pb.CommitReq{
 			Trans: curTrans.in_trans,
 			ExT:   curTrans.in_trans.ExT,
-			Deps:  &pb.Deps{Ids: st.convDepsSet(curTrans.acceptDeps)},
+			Deps:  deps,
 		}
 		data, _ := proto.Marshal(commitMsg)
 		msgs := make([]*pb.Message, 0, 6)
@@ -726,13 +732,35 @@ func (st *StateMachine) commitMessage(req *pb.Message) {
 }
 
 // TODO Send read requests
-// TODO optimize the nearby configuration
-func (st *StateMachine) sendReads() {
+// TODO optimize the nearby configuration, because may need to deal
+// with sudden broken connect
+func (st *StateMachine) sendReads(curTrans *Transaction, deps *pb.Deps) {
+	readMsg := &pb.ReadReq{
+		Trans: curTrans.in_trans,
+		ExT:   curTrans.in_trans.ExT,
+		Deps:  deps,
+	}
+	data, _ := proto.Marshal(readMsg)
+	tars := curTrans.in_trans.RelatedReplicas
+	var msgs []*pb.Message
+	for i := 0; i < len(tars); i++ {
+		msgs = append(msgs, &pb.Message{
+			Type: pb.MsgType_Read,
+			Data: data,
+			From: st.id,
+			To:   tars[i],
+		})
+	}
+	st.sendMsgs(msgs)
 
 }
 
 // TODO perform read operations, the execution logic
+// Current version needs to filter out the deps which is not on this shard
+// Because the node and shard is one-to-one relationship
 func (st *StateMachine) processRead(req *pb.Message) {
+	readMsg := &pb.ReadReq{}
+	proto.Unmarshal(req.Data, readMsg)
 
 }
 
