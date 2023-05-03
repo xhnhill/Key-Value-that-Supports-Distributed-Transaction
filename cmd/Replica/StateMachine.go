@@ -35,6 +35,8 @@ type Transaction struct {
 	couldFast bool               // true when still considering the fast path, false means use slow path
 	failsNum  int                //Number of failed peers
 	collectT  *pb.TransTimestamp // Used in the PreAccept which collects max t from PreAcceptOK
+	//TODO optimize in the final version, use former deps instead
+	acceptDeps map[string]bool //Used to collect deps in collecting AcceptOk stage
 }
 
 // Extract the keys and save it as string in the keys field of Transaction
@@ -168,6 +170,20 @@ func (st *StateMachine) getConflicts(trans *Transaction) []string {
 		conflicts = append(conflicts, k)
 	}
 	return conflicts
+}
+
+// filter the conflicts in the processAccept stage
+func (st *StateMachine) filterConflictsAccept(clfs []string, timestamp *pb.TransTimestamp) []string {
+	res := make([]string, 0, 6)
+	for i := 0; i < len(clfs); i++ {
+		tarTrans := st.w_trans[clfs[i]]
+		tarT0 := tarTrans.in_trans.T0
+		if compareTimestamp(timestamp, tarT0) {
+			res = append(res, tarTrans.in_trans.Id)
+		}
+	}
+	return res
+
 }
 
 //TODO a function to union the deps
@@ -436,6 +452,7 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	conflicts := st.getConflicts(trans)
 	// Update specific config for this Trans
 	//TODO optimize this configuration process
+	//TODO May move to trans submission part in case of recv late from self
 	trans.couldFast = true
 	eSize := innerTrans.EleSize
 	trans.config.fastSize = int(3*eSize/4) + 1
@@ -492,6 +509,13 @@ func (st *StateMachine) genDepsPreAccept(cfl []string, t0 *pb.TransTimestamp) *p
 func (st *StateMachine) updateDeps(cfl []string, trans *Transaction) {
 	for i := 0; i < len(cfl); i++ {
 		trans.deps[cfl[i]] = true
+	}
+}
+
+// Update the deps in transaction at AcceptOk stage, use acceptDeps in Transaction
+func (st *StateMachine) updateDepsAcceptOk(cfl []string, trans *Transaction) {
+	for i := 0; i < len(cfl); i++ {
+		trans.acceptDeps[cfl[i]] = true
 	}
 }
 func (st *StateMachine) convDepsSet(depsSet map[string]bool) []string {
@@ -575,6 +599,45 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 
 }
 
+// TODO Process the Accept Message
+func (st *StateMachine) processAccept(req *pb.Message) {
+
+	accept := &pb.AcceptReq{}
+	proto.Unmarshal(req.Data, accept)
+	transId := accept.Trans.Id
+	//Update the T in trans
+	curTrans := st.w_trans[transId]
+	if compareTimestamp(accept.ExT, st.T[transId]) {
+		st.T[transId] = copyTransTimestamp(accept.ExT)
+	}
+	// Set status of the transaction
+	curTrans.in_trans.St = pb.TranStatus_Accepted
+	//Get conflicts and prepare deps
+	clfs := st.getConflicts(curTrans)
+	//Filtered the conflicts
+	fClfs := st.filterConflictsAccept(clfs, accept.ExT)
+	// Send AcceptOk
+	acceptOk := &pb.AcceptResp{
+		Deps:    &pb.Deps{Ids: fClfs},
+		TransId: transId,
+	}
+	data, _ := proto.Marshal(acceptOk)
+	msgs := make([]*pb.Message, 0, 1)
+	msgs = append(msgs, &pb.Message{
+		Type: pb.MsgType_AcceptOk,
+		Data: data,
+		From: st.id,
+		To:   req.From,
+	})
+	st.sendMsgs(msgs)
+
+}
+
+// TODO Process AcceptOk message
+func (st *StateMachine) processAcceptOk(req *pb.Message) {
+
+}
+
 func (st *StateMachine) commitMessage(req *pb.Message) {
 	commitMsg := &pb.CommitReq{}
 	proto.Unmarshal(req.Data, commitMsg)
@@ -627,8 +690,10 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 		st.processPreAcceptOk(req)
 	case pb.MsgType_Accept:
 		log.Printf("Receive Accept Msg from %d", req.From)
+		st.processAccept(req)
 	case pb.MsgType_AcceptOk:
 		log.Printf("Receive AcceptOk Msg from %d", req.From)
+		st.processAcceptOk(req)
 	case pb.MsgType_Commit:
 		log.Printf("Receive Commit Msg from %d", req.From)
 		st.commitMessage(req)
