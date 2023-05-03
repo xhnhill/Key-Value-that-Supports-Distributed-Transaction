@@ -890,6 +890,20 @@ func (st *StateMachine) processReadOk(req *pb.Message) {
 	//TODO optimize the return logic to clients
 	if len(curTrans.collectShards) == len(curTrans.in_trans.RelatedShards) {
 		//TODO return results to clients
+		finalRes := &pb.FinalRes{
+			CId: curTrans.in_trans.CId,
+			Res: readOk.Res,
+			Tar: curTrans.in_trans.ClientInfo.Addr,
+		}
+		data, _ := proto.Marshal(finalRes)
+		msgs := make([]*pb.Message, 0, 1)
+		msgs = append(msgs, &pb.Message{
+			Type: pb.MsgType_FinalResult,
+			Data: data,
+			From: st.id,
+			To:   100,
+		})
+		st.sendMsgs(msgs)
 
 	}
 }

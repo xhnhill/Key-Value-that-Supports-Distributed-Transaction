@@ -113,6 +113,11 @@ message ApplyReq{
 
 
 }
+message FinalRes{
+  string cId = 1; // identifier for clients to distinguish results
+  repeated SingleResult res =2;
+  string tar = 3; // ip:port of the client
+}
 message RecoverReq{
 
 }
@@ -149,6 +154,7 @@ enum MsgType{
   RecoverOk = 12;
   SubmitTrans = 13;   // Used by the client to submit the transaction
   HeartBeat = 14;
+  FinalResult = 15;
 }
 
 

@@ -112,6 +112,8 @@ func getServerClient(serAddr string) pb.CoordinateClient {
 // TODO optimize the client to be thread safe
 func main() {
 	flag.Parse()
+	//Start receiving server
+
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
 	rdTrans := generateRandomTrans(&clt.nodeinfo)
 	rawMsg, _ := proto.Marshal(rdTrans)

@@ -261,6 +261,43 @@ func (ser *Server) createAndConnUserClient(userInfo *pb.NodeInfo) {
 	ser.clients[user.addr] = &user
 
 }
+func (ser *Server) sendToClient(req *pb.Message) {
+	finalRes := &pb.FinalRes{}
+	proto.Unmarshal(req.Data, finalRes)
+	addr := finalRes.Tar
+	//check if there is already connected conn
+	_, ok := ser.clients[addr]
+	var clt pb.CoordinateClient
+	if ok {
+		clt = ser.clients[addr].client
+
+	} else {
+		//Gen new client
+		conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatalf("did not connect to %s due to : %v", addr, err)
+		}
+		clt = pb.NewCoordinateClient(conn)
+		//register in the clients map
+		ser.clients[addr] = &Node{
+			nodeId: 100,
+			addr:   addr,
+			client: clt,
+		}
+
+	}
+	//send to client
+	f := func(clt pb.CoordinateClient) {
+		_, err := clt.SendReq(context.Background(), req)
+		if err != nil {
+			log.Printf("Error happend when sending results to clients")
+		} else {
+			log.Printf("Successful sending to %s from node%d", addr, ser.node.nodeId)
+		}
+	}
+	go f(clt)
+
+}
 
 // function which is responsible for send out gRPC request
 // Run in a single go routine, but will start lots of other goroutine
@@ -279,6 +316,11 @@ func (ser *Server) performRPC() {
 		if rpc.To == ser.stateMachine.id {
 			ser.inCh <- rpc
 			log.Printf("Send %s from Node%d to Node%d", msgTypeToString[rpc.Type], rpc.To, rpc.To)
+			continue
+		}
+		//Send specific msg to clients
+		if rpc.Type == pb.MsgType_FinalResult {
+			ser.sendToClient(rpc)
 			continue
 		}
 		// TODO maybe we need read write lock here?
