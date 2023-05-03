@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -160,7 +162,7 @@ func (ser *Server) generateShards(n int) {
 	for i := 0; i < *shardsNum; i++ {
 		var replicas []int32
 		for j := i * unit; j < min((i+1)*unit, nodesNum); j++ {
-			replicas = append(replicas, int32(j))
+			replicas = append(replicas, int32(j+1))
 		}
 		if i == n-1 {
 
@@ -264,6 +266,8 @@ func (ser *Server) performRPC() {
 		if !ok {
 			log.Printf("output channel closed on server %d", ser.node.nodeId)
 			return
+		} else {
+			log.Printf("Received msg on outChannel on node%d", ser.node.nodeId)
 		}
 		tarNodeId := int(rpc.To)
 		//Avoid network for the msg sending to self
@@ -283,6 +287,18 @@ func (ser *Server) performRPC() {
 				_, err := node.client.SendReq(context.Background(), msg)
 				if err != nil {
 					log.Printf(ERROR+" Could not use rpc on node %d with err %v", node.nodeId, err)
+					for j := 0; j < 5; j++ {
+						_, err := node.client.SendReq(context.Background(), msg)
+						if status.Code(err) == codes.Unavailable {
+							log.Printf("Retried %d times to use rpc on node %d", j+1, node.nodeId)
+						}
+						//TODO if is shutdown, should reuse the dial function
+						if err == nil {
+							log.Printf("Succeed to use rpc on node %d after %d tries", node.nodeId, j+1)
+							break
+						}
+					}
+
 					return
 				} else {
 					// Perform heartbeat update here
@@ -295,7 +311,7 @@ func (ser *Server) performRPC() {
 			go f(tarNode, rpc)
 
 		} else {
-			log.Printf("Fail to perform rpc on node %d because no connection", tarNodeId)
+			log.Printf("Fail to perform %s rpc on node %d because no connection", msgTypeToString[rpc.Type], tarNodeId)
 
 		}
 
@@ -327,8 +343,8 @@ func main() {
 	}
 	localServer := &Server{
 		node:    cur,
-		inCh:    make(chan *pb.Message, 0),
-		outCh:   make(chan *pb.Message, 0),
+		inCh:    make(chan *pb.Message, 100),
+		outCh:   make(chan *pb.Message, 100),
 		peers:   make(map[int]*Node),
 		clients: make(map[string]*Node),
 		stateMachine: &StateMachine{

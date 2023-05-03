@@ -312,14 +312,35 @@ const (
 
 // TODO register transaction
 func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
-	tr := &Transaction{in_trans: trans}
+	//tr := &Transaction{in_trans: trans}
+	tr := &Transaction{
+		config:      Config{},
+		in_trans:    trans,
+		keys:        make([]string, 0, 6),
+		ifTimeout:   false,
+		endTime:     nil,
+		votes:       0,
+		fVotes:      0,
+		deps:        make(map[string]bool),
+		couldFast:   true,
+		failsNum:    0,
+		collectT:    trans.T0,
+		acceptDeps:  make(map[string]bool),
+		acceptVotes: 0,
+	}
 	switch t {
 	case Managed:
 		// Because the managed statemachine will also recv PreAccept,
 		//the witnessed will be update at that stage
 		st.m_trans[trans.Id] = tr
 	case Witnessed:
-		st.w_trans[trans.Id] = tr
+		_, ok := st.m_trans[trans.Id]
+		if ok {
+			st.w_trans[trans.Id] = st.m_trans[trans.Id]
+		} else {
+			st.w_trans[trans.Id] = tr
+		}
+
 	}
 }
 
@@ -331,6 +352,7 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 	var msgs []*pb.Message
 	t0 := st.generateTimestamp()
 	trans.Id = *st.generateTransId(t0)
+	trans.T0 = t0
 	st.registerTrans(Managed, trans)
 	preAccept := pb.PreAcceptReq{
 		Trans: trans,
@@ -444,8 +466,10 @@ func copyTransTimestamp(timestamp *pb.TransTimestamp) *pb.TransTimestamp {
 // TODO process the PreAccept Request
 func (st *StateMachine) processPreAccept(req *pb.Message) {
 	var innerTrans *pb.Trans
-	innerTrans = &pb.Trans{}
-	proto.Unmarshal(req.Data, innerTrans)
+	preAccept := &pb.PreAcceptReq{}
+	proto.Unmarshal(req.Data, preAccept)
+	innerTrans = preAccept.Trans
+	innerTrans.T0 = preAccept.T0
 	//Register the transaction as witnesses
 	st.registerTrans(Witnessed, innerTrans)
 	trans := st.w_trans[innerTrans.Id]
@@ -464,7 +488,7 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	//compare and set t(trans) and T(trans)
 	// May need to copy a timestamp, because we will modify it
 
-	tTrans := copyTransTimestamp(innerTrans.T0)
+	tTrans := copyTransTimestamp(preAccept.T0)
 	for i := 0; i < len(conflicts); i++ {
 		// Compare with T
 		tarTimestamp := st.T[conflicts[i]]
