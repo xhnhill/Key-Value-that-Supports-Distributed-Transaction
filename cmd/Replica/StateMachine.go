@@ -767,6 +767,8 @@ func (st *StateMachine) commitMessage(req *pb.Message) {
 	//Update Execution time for innerTrans
 	curTrans.in_trans.ExT = commitMsg.ExT
 	//TODO Any other thing that need to be done?
+	//Trigger other trans and make progress
+	st.triggerCheckOnAll()
 }
 
 // TODO Send read requests
@@ -816,11 +818,38 @@ func (st *StateMachine) filterReadKey(trans *Transaction) []string {
 	}
 	return fKeys
 }
-
+func shareSameShard(tars []int32, cShardId int32) bool {
+	for i := 0; i < len(tars); i++ {
+		if tars[i] == cShardId {
+			return true
+		}
+	}
+	return false
+}
 func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 	//Check if await condition satisfied
 	//TODO check commit await
+	curDeps := curTrans.in_trans.Deps.Items
+	//Current shard, only deps related to this shard is considered
+	cShard := st.curShard.ShardId
+	for i := 0; i < len(curDeps); i++ {
+		tarId := curDeps[i].Id
+		tarTrans := st.w_trans[tarId]
+		if shareSameShard(tarTrans.in_trans.RelatedShards, cShard) {
+			if tarTrans.in_trans.St == pb.TranStatus_Applied ||
+				tarTrans.in_trans.St == pb.TranStatus_Commited {
+				if compareTimestamp(curTrans.in_trans.ExT, tarTrans.in_trans.ExT) {
+					if tarTrans.in_trans.St == pb.TranStatus_Commited {
+						return
+					}
+				}
 
+			} else {
+				return
+			}
+
+		}
+	}
 	//TODO check Applied await
 
 	fKeys := st.filterReadKey(curTrans)
@@ -874,46 +903,7 @@ func (st *StateMachine) processRead(req *pb.Message) {
 	curTrans.ifWait = true
 	//update replyTo attribute of outer Trans
 	curTrans.replyTo = req.From
-	//TODO modify here, we only needs the read keys!!
-	fKeys := st.filterReadKey(curTrans)
-	//TODO wait operations
-
-	//Perform reads on underlying database
-
-	reads := make([]*pb.SingleResult, 0, 3)
-	st.db.View(func(txn *badger.Txn) error {
-		var tmp []*pb.SingleResult
-		for i := 0; i < len(fKeys); i++ {
-			item, err := txn.Get([]byte(fKeys[i]))
-			if err != nil {
-				return err
-			} else {
-
-				valCopy, _ := item.ValueCopy([]byte{})
-				tmp = append(tmp, &pb.SingleResult{
-					Key: fKeys[i],
-					Val: string(valCopy),
-				})
-			}
-		}
-		reads = append(reads, tmp...)
-		return nil
-
-	})
-	//Prepare readOk msgs
-	readOk := &pb.ReadResp{
-		Res:     reads,
-		TransId: curTrans.in_trans.Id,
-	}
-	data, _ := proto.Marshal(readOk)
-	msgs := make([]*pb.Message, 0, 1)
-	msgs = append(msgs, &pb.Message{
-		Type: pb.MsgType_ReadOk,
-		Data: data,
-		From: st.id,
-		To:   req.From,
-	})
-	st.sendMsgs(msgs)
+	st.checkReadCondition(curTrans)
 
 }
 
@@ -1015,6 +1005,45 @@ func (st *StateMachine) writeRes(writes []*pb.WriteOp) error {
 	})
 	return err
 }
+func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
+	//Check if await condition satisfied
+	//TODO check commit await
+	curDeps := curTrans.in_trans.Deps.Items
+	//Current shard, only deps related to this shard is considered
+	cShard := st.curShard.ShardId
+	for i := 0; i < len(curDeps); i++ {
+		tarId := curDeps[i].Id
+		tarTrans := st.w_trans[tarId]
+		if shareSameShard(tarTrans.in_trans.RelatedShards, cShard) {
+			if tarTrans.in_trans.St == pb.TranStatus_Applied ||
+				tarTrans.in_trans.St == pb.TranStatus_Commited {
+				if compareTimestamp(curTrans.in_trans.ExT, tarTrans.in_trans.ExT) {
+					if tarTrans.in_trans.St == pb.TranStatus_Commited {
+						return
+					}
+				}
+
+			} else {
+				return
+			}
+
+		}
+	}
+	// filtered the writes
+	fWrites := st.filterWrite(curTrans)
+	//write to persistent layer
+	for {
+		err := st.writeRes(fWrites)
+		if err == nil {
+			curTrans.in_trans.St = pb.TranStatus_Applied
+			st.triggerCheckOnAll()
+			return
+		} else {
+			log.Printf(ERROR+"Could not write to db on node%d", st.id)
+		}
+	}
+
+}
 
 // TODO process apply message
 // TODO applied transaction will trigger other transactions
@@ -1028,21 +1057,20 @@ func (st *StateMachine) processApply(req *pb.Message) {
 	curTrans.ifWait = true
 	//update replyTo attribute of outer Trans
 	curTrans.replyTo = req.From
-	//TODO wait condition
 
-	// filtered the writes
-	fWrites := st.filterWrite(curTrans)
-	//write to persistent layer
-	for {
-		err := st.writeRes(fWrites)
-		if err == nil {
-			curTrans.in_trans.St = pb.TranStatus_Applied
-			return
-		} else {
-			log.Printf(ERROR+"Could not write to db on node%d", st.id)
+	st.checkApplyCondition(curTrans)
+
+}
+func (st *StateMachine) triggerCheckOnAll() {
+	transAll := st.w_trans
+	for k, _ := range transAll {
+		tarTrans := transAll[k]
+		if tarTrans.in_trans.St == pb.TranStatus_Commited {
+			st.checkReadCondition(tarTrans)
+			st.checkApplyCondition(tarTrans)
 		}
-	}
 
+	}
 }
 
 // Receive heartbeat response
