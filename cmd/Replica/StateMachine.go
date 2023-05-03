@@ -4,6 +4,7 @@ import (
 	pb "Distributed_Key_Value_Store/cmd/Primitive"
 	"crypto/sha256"
 	"fmt"
+	"github.com/dgraph-io/badger/v4"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
@@ -119,6 +120,8 @@ type StateMachine struct {
 	//TODO shards
 	//shards contain the sharding info of the cluster
 	shards []*pb.ShardInfo
+	//shards map, which maps nodeId to shardId
+	shardMap map[int32]int32
 	// Record the shard info of the current node
 	curShard *pb.ShardInfo
 	//In channel, which is the source of msgs
@@ -133,6 +136,10 @@ type StateMachine struct {
 	conflictMap map[string][]string
 	//current tick number, when greater than 10, send heartbeat msg
 	tickNum int
+	//Underlying persistent layer
+	db *badger.DB
+	//DB's name
+	dbName string
 }
 
 // Get keys of the transaction
@@ -617,11 +624,11 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 		}
 		if curTrans.fVotes >= curTrans.config.fastSize {
 			//perform the fast path logic
-
+			deps := &pb.Deps{Ids: st.convDepsSet(curTrans.deps)}
 			commitMsg := &pb.CommitReq{
 				Trans: curTrans.in_trans,
 				ExT:   curTrans.in_trans.T0,
-				Deps:  &pb.Deps{Ids: st.convDepsSet(curTrans.deps)},
+				Deps:  deps,
 			}
 			data, _ := proto.Marshal(commitMsg)
 			var msgs []*pb.Message
@@ -635,7 +642,7 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 			}
 			st.sendMsgs(msgs)
 			//TODO perform execution logic
-			st.sendReads()
+			st.sendReads(curTrans, deps)
 
 		}
 	} else {
@@ -708,7 +715,7 @@ func (st *StateMachine) checkAcceptOkVotes(curTrans *Transaction) {
 		//Update local status to committed
 		curTrans.in_trans.St = pb.TranStatus_Commited
 		//TODO Execute the Ecution Protocol
-		st.sendReads()
+		st.sendReads(curTrans, deps)
 
 	}
 }
@@ -755,12 +762,63 @@ func (st *StateMachine) sendReads(curTrans *Transaction, deps *pb.Deps) {
 
 }
 
+// return read keys related to this shard
+func (st *StateMachine) filterReadKey(trans *Transaction) []string {
+	keys := trans.keys
+	fKeys := make([]string, 0, 3)
+	shardInfo := st.curShard
+
+	for i := 0; i < len(keys); i++ {
+		if ifKeyInRange(keys[i], shardInfo.Start, shardInfo.End) {
+			fKeys = append(fKeys, keys[i])
+		}
+	}
+	return fKeys
+}
+
 // TODO perform read operations, the execution logic
 // Current version needs to filter out the deps which is not on this shard
 // Because the node and shard is one-to-one relationship
 func (st *StateMachine) processRead(req *pb.Message) {
 	readMsg := &pb.ReadReq{}
 	proto.Unmarshal(req.Data, readMsg)
+	curTrans := st.m_trans[readMsg.Trans.Id]
+	fKeys := st.filterReadKey(curTrans)
+	//TODO wait operations
+
+	//Perform reads on underlying database
+
+	reads := make([]*pb.SingleResult, 0, 3)
+	st.db.View(func(txn *badger.Txn) error {
+		var tmp []*pb.SingleResult
+		for i := 0; i < len(fKeys); i++ {
+			item, err := txn.Get([]byte(fKeys[i]))
+			if err != nil {
+				return err
+			} else {
+
+				valCopy, _ := item.ValueCopy([]byte{})
+				tmp = append(tmp, &pb.SingleResult{
+					Key: fKeys[i],
+					Val: string(valCopy),
+				})
+			}
+		}
+		reads = append(reads, tmp...)
+		return nil
+
+	})
+	//Prepare readOk msgs
+	readOk := &pb.ReadResp{Res: reads}
+	data, _ := proto.Marshal(readOk)
+	msgs := make([]*pb.Message, 0, 1)
+	msgs = append(msgs, &pb.Message{
+		Type: pb.MsgType_ReadOk,
+		Data: data,
+		From: st.id,
+		To:   req.From,
+	})
+	st.sendMsgs(msgs)
 
 }
 

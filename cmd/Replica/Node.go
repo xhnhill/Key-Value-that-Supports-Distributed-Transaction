@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/dgraph-io/badger/v4"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -159,10 +160,13 @@ func (ser *Server) generateShards(n int) {
 	sum := big.NewInt(0)
 	nodesNum := len(ser.peers)
 	unit := int(math.Ceil(float64(nodesNum) / float64(*shardsNum)))
+	//Construct shardsMap which maps nodeId to shardId
+	shardMap := make(map[int32]int32)
 	for i := 0; i < *shardsNum; i++ {
 		var replicas []int32
 		for j := i * unit; j < min((i+1)*unit, nodesNum); j++ {
 			replicas = append(replicas, int32(j+1))
+			shardMap[int32(j+1)] = int32(i)
 		}
 		if i == n-1 {
 
@@ -184,6 +188,7 @@ func (ser *Server) generateShards(n int) {
 	ser.stateMachine.shards = shards
 	//Consider 1 based index
 	ser.stateMachine.curShard = shards[(ser.node.nodeId-1)/unit]
+	ser.stateMachine.shardMap = shardMap
 
 }
 
@@ -341,6 +346,14 @@ func main() {
 	if err != nil {
 		return
 	}
+	//create uderlying persistent layer
+	dbName := strconv.Itoa(cur.nodeId) + "DB"
+	//TODO could use in memopry version during initial test
+	db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
+	//db, err := badger.Open(badger.DefaultOptions("tmp/" + dbName))
+	if err != nil {
+		log.Fatalf("failed to create db on node %d", cur.nodeId)
+	}
 	localServer := &Server{
 		node:    cur,
 		inCh:    make(chan *pb.Message, 100),
@@ -363,6 +376,8 @@ func main() {
 			T:           make(map[string]*pb.TransTimestamp),
 			conflictMap: make(map[string][]string),
 			tickNum:     0,
+			db:          db,
+			dbName:      dbName,
 		},
 	}
 	log.Printf("Node %d, begin to load and address is %s"+": %d", nodeId, ip, port)

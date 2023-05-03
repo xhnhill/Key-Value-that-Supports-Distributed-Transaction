@@ -15,9 +15,9 @@ message ReadOp{
   string key = 1;
 
 }
-message ReadResult{
+message SingleResult{
   string key =1;
-  string val = 2;
+  string val = 2; // To write, it will be the write status
 }
 // TODO Add more complex operation to WriteOp
 message WriteOp{
@@ -100,7 +100,7 @@ message ReadReq{
   Deps deps = 3;
 }
 message ReadResp{
-  repeated ReadResult reads =1;
+  repeated SingleResult res =1;
 }
 message ApplyReq{
   Trans trans =1;
