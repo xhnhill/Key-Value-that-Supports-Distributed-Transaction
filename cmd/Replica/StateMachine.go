@@ -283,12 +283,12 @@ func compareByte(b1 []byte, b2 []byte) int {
 	return 0
 }
 func ifKeyInRange(key string, st []byte, end []byte) bool {
-	strByte := []byte(key)
-	diff := 32 - len(strByte)
-	for i := 0; i < diff; i++ {
-		strByte = append(strByte, 0x0)
+	hashKey := sha256.Sum256([]byte(key))
+	hashed := make([]byte, 0, 32)
+	for i := 0; i < 32; i++ {
+		hashed = append(hashed, hashKey[i])
 	}
-	return compareByte(strByte, st) >= 0 && compareByte(strByte, end) < 0
+	return compareByte(hashed, st) >= 0 && compareByte(hashed, end) < 0
 }
 func (st *StateMachine) ifInShards(keySet map[string]bool, info *pb.ShardInfo) bool {
 	for key, _ := range keySet {
@@ -768,10 +768,18 @@ func (st *StateMachine) sendReads(curTrans *Transaction, deps *pb.Deps) {
 	st.sendMsgs(msgs)
 
 }
+func (st *StateMachine) getReadKeys(trans *Transaction) []string {
+	reads := make([]string, 0, 3)
+	readOps := trans.in_trans.Reads
+	for i := 0; i < len(readOps); i++ {
+		reads = append(reads, readOps[i].Key)
+	}
+	return reads
+}
 
 // return read keys related to this shard
 func (st *StateMachine) filterReadKey(trans *Transaction) []string {
-	keys := trans.keys
+	keys := st.getReadKeys(trans)
 	fKeys := make([]string, 0, 3)
 	shardInfo := st.curShard
 
@@ -907,9 +915,51 @@ func (st *StateMachine) processReadOk(req *pb.Message) {
 
 	}
 }
+func (st *StateMachine) filterWrite(curTrans *Transaction) []*pb.WriteOp {
+	writes := curTrans.in_trans.Writes
+	curShard := st.curShard
+	fWrites := make([]*pb.WriteOp, 0, 3)
+	for i := 0; i < len(writes); i++ {
+		if ifKeyInRange(writes[i].Key, curShard.Start, curShard.End) {
+			fWrites = append(fWrites, writes[i])
+		}
+	}
+	return fWrites
+}
+func (st *StateMachine) writeRes(writes []*pb.WriteOp) error {
+	db := st.db
+	err := db.Update(func(txn *badger.Txn) error {
+		for i := 0; i < len(writes); i++ {
+			err := txn.Set([]byte(writes[i].Key), []byte(writes[i].Val))
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err
+}
 
 // TODO process apply message
+// TODO applied transaction will trigger other transactions
 func (st *StateMachine) processApply(req *pb.Message) {
+	applyMsg := &pb.ApplyReq{}
+	proto.Unmarshal(req.Data, applyMsg)
+	curTrans := st.w_trans[applyMsg.Trans.Id]
+	//TODO wait condition
+
+	// filtered the writes
+	fWrites := st.filterWrite(curTrans)
+	//write to persistent layer
+	for {
+		err := st.writeRes(fWrites)
+		if err == nil {
+			curTrans.in_trans.St = pb.TranStatus_Applied
+			return
+		} else {
+			log.Printf(ERROR+"Could not write to db on node%d", st.id)
+		}
+	}
 
 }
 
