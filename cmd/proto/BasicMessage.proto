@@ -49,6 +49,8 @@ message Trans{
   repeated int32 relatedReplicas = 9; // the id of the related replicas
   //The following is also the decided version of collectT in outer Trans
   TransTimestamp ExT = 10; //Execution t, which is decided in the Accept phase
+  repeated  int32 relatedShards = 11; // Related shardId of this transaction
+  Deps deps = 12; // Store the decided deps, which is set in the send read phase
 
 }
 //Used for client to pass its info, so that coordinator know how to send back info
@@ -101,12 +103,13 @@ message ReadReq{
 }
 message ReadResp{
   repeated SingleResult res =1;
+  string transId = 2;
 }
 message ApplyReq{
   Trans trans =1;
   TransTimestamp exT =2;
   Deps deps_p = 3;
-  Result res = 4;
+  repeated SingleResult res= 4;
 
 
 }
