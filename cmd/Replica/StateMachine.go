@@ -158,6 +158,7 @@ func (st *StateMachine) getConflicts(trans *Transaction) []string {
 	keys := trans.keys
 	transId := trans.in_trans.Id
 	var cMap map[string]bool
+	cMap = make(map[string]bool)
 	var conflicts []string
 	for i := 0; i < len(keys); i++ {
 		ls := st.conflictMap[keys[i]]
@@ -570,10 +571,7 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	proto.Unmarshal(req.Data, preAcceptOk)
 	//TODO think about what if this node doesn't see this trans
 	curTrans := st.m_trans[preAcceptOk.TransId]
-	//update votes
-	if equals(preAcceptOk.T, curTrans.in_trans.T0) {
-		curTrans.fVotes++
-	}
+	//Update classical votes
 	curTrans.votes++
 	//update collectT proposed by PreAcceptOK
 	curTrans.collectT = copyTransTimestamp(curTrans.in_trans.T0)
@@ -584,6 +582,10 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	//TODO check if fast quorum is enough
 	//TODO slow path status
 	if curTrans.couldFast {
+		//update fvotes
+		if equals(preAcceptOk.T, curTrans.in_trans.T0) {
+			curTrans.fVotes++
+		}
 		if curTrans.fVotes >= curTrans.config.fastSize {
 			//perform the fast path logic
 
@@ -603,9 +605,12 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 				})
 			}
 			st.sendMsgs(msgs)
+			//TODO perform execution logic
+			st.sendReads()
 
 		}
 	} else {
+
 		st.checkAndProcessSlowPath(curTrans)
 
 	}
@@ -672,13 +677,19 @@ func (st *StateMachine) checkAcceptOkVotes(curTrans *Transaction) {
 		st.sendMsgs(msgs)
 		//Update local status to committed
 		curTrans.in_trans.St = pb.TranStatus_Commited
+		//TODO Execute the Ecution Protocol
+		st.sendReads()
 
 	}
 }
 
 // TODO Process AcceptOk message
 func (st *StateMachine) processAcceptOk(req *pb.Message) {
-
+	acceptOk := &pb.AcceptResp{}
+	proto.Unmarshal(req.Data, acceptOk)
+	curTrans := st.m_trans[acceptOk.TransId]
+	st.updateDepsAcceptOk(acceptOk.Deps.Ids, curTrans)
+	st.checkAcceptOkVotes(curTrans)
 }
 
 func (st *StateMachine) commitMessage(req *pb.Message) {
@@ -696,7 +707,7 @@ func (st *StateMachine) sendReads() {
 
 }
 
-// TODO perform read operations
+// TODO perform read operations, the execution logic
 func (st *StateMachine) processRead(req *pb.Message) {
 
 }
