@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 	"log"
+	"net"
 	"strconv"
 	"time"
 )
@@ -109,11 +110,29 @@ func getServerClient(serAddr string) pb.CoordinateClient {
 	return pb.NewCoordinateClient(conn)
 }
 
+type cltServer struct {
+	pb.UnimplementedCoordinateServer
+}
+
 // TODO optimize the client to be thread safe
 func main() {
 	flag.Parse()
 	//Start receiving server
-
+	lis, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatalf("failed to listen on client: %v", err)
+	}
+	localServer := &cltServer{}
+	s := grpc.NewServer()
+	pb.RegisterCoordinateServer(s, localServer)
+	log.Printf("server listening at %v", lis.Addr())
+	f := func() {
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
+	}
+	go f()
+	// calling part
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
 	rdTrans := generateRandomTrans(&clt.nodeinfo)
 	rawMsg, _ := proto.Marshal(rdTrans)
