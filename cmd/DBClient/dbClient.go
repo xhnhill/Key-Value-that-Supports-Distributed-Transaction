@@ -99,7 +99,7 @@ func sendMsg(data []byte, tar pb.CoordinateClient) {
 		log.Fatal("Sending failed, %v", err)
 		return
 	}
-	log.Printf("Received the resp")
+	//log.Printf("Received the resp")
 	return
 }
 

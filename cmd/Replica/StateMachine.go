@@ -797,7 +797,7 @@ func (st *StateMachine) filterReadKey(trans *Transaction) []string {
 func (st *StateMachine) processRead(req *pb.Message) {
 	readMsg := &pb.ReadReq{}
 	proto.Unmarshal(req.Data, readMsg)
-	curTrans := st.m_trans[readMsg.Trans.Id]
+	curTrans := st.w_trans[readMsg.Trans.Id]
 	//TODO modify here, we only needs the read keys!!
 	fKeys := st.filterReadKey(curTrans)
 	//TODO wait operations
