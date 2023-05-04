@@ -22,11 +22,10 @@ func printResMap(resMap map[int][]byte) {
 
 }
 func main() {
-	key := []byte("mykey")
 
 	var dbs []*badger.DB
 	for i := 1; i <= *numDB; i++ {
-		dbPath := fmt.Sprintf("%s%d", pathPrefix, i)
+		dbPath := fmt.Sprintf("%s%d", *pathPrefix, i)
 		db, err := badger.Open(badger.DefaultOptions(dbPath))
 		if err != nil {
 			log.Fatalf("Failed to open DB at %s: %v", dbPath, err)
@@ -44,7 +43,7 @@ func main() {
 		results := make(map[int][]byte)
 		for idx, db := range dbs {
 			err := db.View(func(txn *badger.Txn) error {
-				item, err := txn.Get(key)
+				item, err := txn.Get([]byte(input))
 				if err != nil {
 					return err
 				}
@@ -57,7 +56,7 @@ func main() {
 				return nil
 			})
 			if err != nil {
-				log.Fatalf("Failed to read key from DB %d: %v", idx, err)
+				log.Printf("Failed to read key from DB %d: %v", idx, err)
 			}
 		}
 		printResMap(results)

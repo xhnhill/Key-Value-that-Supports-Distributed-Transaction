@@ -392,10 +392,10 @@ func main() {
 		return
 	}
 	//create uderlying persistent layer
-	dbName := strconv.Itoa(cur.nodeId) + "DB"
+	dbName := strconv.Itoa(cur.nodeId)
 	//TODO could use in memopry version during initial test
-	db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
-	//db, err := badger.Open(badger.DefaultOptions("tmp/" + dbName))
+	//db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
+	db, err := badger.Open(badger.DefaultOptions("tmp/" + dbName))
 	if err != nil {
 		log.Fatalf("failed to create db on node %d", cur.nodeId)
 	}
