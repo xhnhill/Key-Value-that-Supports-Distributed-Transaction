@@ -163,17 +163,6 @@ func (trans *Transaction) getKeys() {
 
 }
 
-// Register the transaction in the conflict keymap
-// This process only happens in PreAccept phase
-func (st *StateMachine) registerConflicts(trans *Transaction) {
-	keys := trans.keys
-	transId := trans.in_trans.Id
-	for i := 0; i < len(keys); i++ {
-		ls := st.conflictMap[keys[i]]
-		st.conflictMap[keys[i]] = append(ls, transId)
-	}
-}
-
 // Generate conflict trans
 // Judge the return
 // Use the inverted index to find the conflicts
@@ -1139,7 +1128,9 @@ func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 		err := st.writeRes(fWrites)
 		if err == nil {
 			curTrans.in_trans.St = pb.TranStatus_Applied
-			log.Printf("Write %s on node%d, whose deps is %s", fWrites[0].Val, st.id, depsToString(curDeps))
+			if len(fWrites) > 0 {
+				log.Printf("Write %s on node%d, whose deps is %s", fWrites[0].Val, st.id, depsToString(curDeps))
+			}
 			st.triggerCheckOnAll()
 			return
 		} else {

@@ -17,11 +17,11 @@ import (
 )
 
 var (
-	addr = flag.String("addr", "localhost:50071"+
+	addr = flag.String("addr", "localhost:50072"+
 		"", "the address of client Node")
 
 	//TODO replace this place and use round robin to select server later
-	server = flag.String("ser", "localhost:50032", "the address of connected server")
+	server = flag.String("ser", "localhost:50034", "the address of connected server")
 )
 
 const (
@@ -197,7 +197,7 @@ func main() {
 	// calling part
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
 	ser := getServerClient(*server)
-	localServer.concurrentOp(clt, ser)
-	//localServer.fixedRead(clt, ser)
+	//localServer.concurrentOp(clt, ser)
+	localServer.fixedRead(clt, ser)
 
 }
