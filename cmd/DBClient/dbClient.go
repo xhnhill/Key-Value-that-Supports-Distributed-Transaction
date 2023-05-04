@@ -20,7 +20,7 @@ var (
 	addr = flag.String("addr", "localhost:50070", "the address of client Node")
 
 	//TODO replace this place and use round robin to select server later
-	server = flag.String("ser", "localhost:50031", "the address of connected server")
+	server = flag.String("ser", "localhost:50036", "the address of connected server")
 )
 
 const (
@@ -75,7 +75,16 @@ func generateRandomTrans(clt *pb.NodeInfo) *pb.Trans {
 	for i := 0; i < 2; i++ {
 		rKeys = append(rKeys, "rk"+strconv.Itoa(i))
 		wKeys = append(wKeys, "rk"+strconv.Itoa(i))
-		wVals = append(wVals, "val "+strconv.Itoa(i))
+		wVals = append(wVals, "val "+strconv.Itoa(i)+genUUID())
+	}
+	return generateTrans(rKeys, wKeys, wVals, clt)
+}
+func generateFixedTrans(clt *pb.NodeInfo) *pb.Trans {
+	var rKeys []string
+	wKeys := make([]string, 0, 1)
+	wVals := make([]string, 0, 1)
+	for i := 0; i < 1; i++ {
+		rKeys = append(rKeys, "rk"+strconv.Itoa(i))
 	}
 	return generateTrans(rKeys, wKeys, wVals, clt)
 }
@@ -146,6 +155,16 @@ func (s *cltServer) SendReq(ctx context.Context, in *pb.Message) (*emptypb.Empty
 	return &emptypb.Empty{}, nil
 
 }
+func (localServer *cltServer) MassiveConcurrent(clt *DbClient, ser pb.CoordinateClient) {
+	rdTrans := generateRandomTrans(&clt.nodeinfo)
+	localServer.blockRead(rdTrans, ser)
+}
+
+// Fixed version read
+func (localServer *cltServer) fixedRead(clt *DbClient, ser pb.CoordinateClient) {
+	rdTrans := generateFixedTrans(&clt.nodeinfo)
+	localServer.blockRead(rdTrans, ser)
+}
 
 // TODO optimize the client to be thread safe
 func main() {
@@ -170,8 +189,11 @@ func main() {
 	go f()
 	// calling part
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
-	rdTrans := generateRandomTrans(&clt.nodeinfo)
 	ser := getServerClient(*server)
-	localServer.blockRead(rdTrans, ser)
+	for i := 0; i < 10; i++ {
+		go localServer.MassiveConcurrent(clt, ser)
+	}
+	//localServer.fixedRead(clt, ser)
+	time.Sleep(15 * time.Second)
 
 }

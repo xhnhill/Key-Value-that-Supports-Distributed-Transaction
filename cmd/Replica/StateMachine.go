@@ -766,6 +766,7 @@ func (st *StateMachine) commitMessage(req *pb.Message) {
 	curTrans.in_trans.St = pb.TranStatus_Commited
 	//Update Execution time for innerTrans
 	curTrans.in_trans.ExT = commitMsg.ExT
+	curTrans.in_trans.Deps = commitMsg.Deps
 	//TODO Any other thing that need to be done?
 	//Trigger other trans and make progress
 	st.triggerCheckOnAll()
@@ -827,6 +828,10 @@ func shareSameShard(tars []int32, cShardId int32) bool {
 	return false
 }
 func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
+	//Only check trans which sets the ifWait attribute
+	if !curTrans.ifWait {
+		return
+	}
 	//Check if await condition satisfied
 	//TODO check commit await
 	curDeps := curTrans.in_trans.Deps.Items
