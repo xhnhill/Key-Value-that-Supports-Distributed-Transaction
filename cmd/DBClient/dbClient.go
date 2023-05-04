@@ -184,6 +184,26 @@ func main() {
 		transMap: make(map[string]chan []*pb.SingleResult),
 		mu:       sync.Mutex{},
 	}
+
+	//Start receiving server
+	lis, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatalf("failed to listen on client: %v", err)
+	}
+	//localServer := &cltServer{
+	//	transMap: make(map[string]chan []*pb.SingleResult),
+	//		mu:       sync.Mutex{},
+	//	}
+	s := grpc.NewServer()
+	pb.RegisterCoordinateServer(s, localServer)
+	log.Printf("server listening at %v", lis.Addr())
+	f := func() {
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
+	}
+	go f()
+
 	// Initialize termui
 	if err := termui.Init(); err != nil {
 		log.Fatalf("failed to initialize termui: %v", err)
@@ -266,24 +286,6 @@ func main() {
 		}
 	}
 
-	//Start receiving server
-	lis, err := net.Listen("tcp", *addr)
-	if err != nil {
-		log.Fatalf("failed to listen on client: %v", err)
-	}
-	//localServer := &cltServer{
-	//	transMap: make(map[string]chan []*pb.SingleResult),
-	//		mu:       sync.Mutex{},
-	//	}
-	s := grpc.NewServer()
-	pb.RegisterCoordinateServer(s, localServer)
-	log.Printf("server listening at %v", lis.Addr())
-	f := func() {
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
-		}
-	}
-	go f()
 	// calling part
 	//clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
 	//ser := getServerClient(*server)
