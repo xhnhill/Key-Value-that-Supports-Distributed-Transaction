@@ -11,8 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gizak/termui/v3"
-	"github.com/gizak/termui/v3/widgets"
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/widget"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -21,11 +23,11 @@ import (
 )
 
 var (
-	addr = flag.String("addr", "localhost:50072"+
+	addr = flag.String("addr", "localhost:51082"+
 		"", "the address of client Node")
 
 	//TODO replace this place and use round robin to select server later
-	server = flag.String("ser", "localhost:50051", "the address of connected server")
+	server = flag.String("ser", "localhost:50036", "the address of connected server")
 )
 
 const (
@@ -170,26 +172,102 @@ func (localServer *cltServer) fixedRead(clt *DbClient, ser pb.CoordinateClient) 
 	rdTrans := generateFixedTrans(&clt.nodeinfo)
 	localServer.blockRead(rdTrans, ser)
 }
+func (localServer *cltServer) concurrentOp(clt *DbClient, ser pb.CoordinateClient) {
+	for i := 0; i < 50; i++ {
+		go localServer.MassiveConcurrent(clt, ser)
+	}
+	time.Sleep(300 * time.Second)
+}
+
+func performTransaction(clt *DbClient, ser pb.CoordinateClient, localServer *cltServer, readKeys, writeKeys, writeValues []string) {
+	trans := generateTrans(readKeys, writeKeys, writeValues, &clt.nodeinfo)
+	localServer.blockRead(trans, ser)
+
+}
+
+func runGUI(localServer *cltServer) {
+	a := app.New()
+	w := a.NewWindow("DB Client")
+	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
+	var ser pb.CoordinateClient
+	// Create input fields
+	serverIPInput := widget.NewEntry()
+	serverIPInput.SetPlaceHolder("Server IP")
+	serverPortInput := widget.NewEntry()
+	serverPortInput.SetPlaceHolder("Server Port")
+	readKeysEntry := widget.NewEntry()
+	readKeysEntry.SetPlaceHolder("Enter read keys")
+	writeKeysEntry := widget.NewEntry()
+	writeKeysEntry.SetPlaceHolder("Enter write keys")
+	writeValuesEntry := widget.NewEntry()
+	writeValuesEntry.SetPlaceHolder("Enter write values")
+
+	// Create log output label and scroll container
+	logOutput := widget.NewLabel("")
+	logScroll := container.NewVScroll(logOutput)
+	logScroll.SetMinSize(fyne.NewSize(500, 300))
+	// Set custom log writer
+	log.SetOutput(&logWriter{output: logOutput})
+
+	// Create buttons and set actions
+	connectBtn := widget.NewButton("Connect", func() {
+		*server = serverIPInput.Text + ":" + serverPortInput.Text
+		ser = getServerClient(*server)
+		//log.Println("Connected to server:", *server)
+	})
+	performTransBtn := widget.NewButton("Perform Transaction", func() {
+		readKeys := strings.Split(readKeysEntry.Text, ",")
+		writeKeys := strings.Split(writeKeysEntry.Text, ",")
+		writeValues := strings.Split(writeValuesEntry.Text, ",")
+
+		go performTransaction(clt, ser, localServer, readKeys, writeKeys, writeValues)
+	})
+	concurrentOpBtn := widget.NewButton("Concurrent Operation", func() {
+		go localServer.concurrentOp(clt, ser)
+	})
+	fixedReadBtn := widget.NewButton("Fixed Read", func() {
+		go localServer.fixedRead(clt, ser)
+	})
+
+	// Add input fields and buttons to the container
+	form := container.NewVBox(
+		serverIPInput,
+		serverPortInput,
+		readKeysEntry,
+		writeKeysEntry,
+		writeValuesEntry,
+		connectBtn,
+		performTransBtn,
+		concurrentOpBtn,
+		fixedReadBtn,
+		logScroll,
+	)
+
+	w.SetContent(form)
+	w.ShowAndRun()
+}
+
+type logWriter struct {
+	output *widget.Label
+}
+
+func (lw *logWriter) Write(p []byte) (n int, err error) {
+	lw.output.SetText(lw.output.Text + string(p))
+	return len(p), nil
+}
 
 // TODO optimize the client to be thread safe
 func main() {
 	flag.Parse()
-	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
-	ser := getServerClient(*server)
-	localServer := &cltServer{
-		transMap: make(map[string]chan []*pb.SingleResult),
-		mu:       sync.Mutex{},
-	}
-
 	//Start receiving server
 	lis, err := net.Listen("tcp", *addr)
 	if err != nil {
 		log.Fatalf("failed to listen on client: %v", err)
 	}
-	//localServer := &cltServer{
-	//	transMap: make(map[string]chan []*pb.SingleResult),
-	//		mu:       sync.Mutex{},
-	//	}
+	localServer := &cltServer{
+		transMap: make(map[string]chan []*pb.SingleResult),
+		mu:       sync.Mutex{},
+	}
 	s := grpc.NewServer()
 	pb.RegisterCoordinateServer(s, localServer)
 	log.Printf("server listening at %v", lis.Addr())
@@ -198,97 +276,10 @@ func main() {
 			log.Fatalf("failed to serve: %v", err)
 		}
 	}
+	runGUI(localServer)
 	go f()
-
-	// Initialize termui
-	if err := termui.Init(); err != nil {
-		log.Fatalf("failed to initialize termui: %v", err)
-	}
-	defer termui.Close()
-
-	// Create input widgets
-	readKeysInput := widgets.NewParagraph()
-	readKeysInput.Title = "Read Keys (comma separated)"
-	readKeysInput.SetRect(0, 0, 60, 5)
-
-	writeKeysInput := widgets.NewParagraph()
-	writeKeysInput.Title = "Write Keys (comma separated)"
-	writeKeysInput.SetRect(0, 5, 60, 10)
-
-	writeValuesInput := widgets.NewParagraph()
-	writeValuesInput.Title = "Write Values (comma separated)"
-	writeValuesInput.SetRect(0, 10, 60, 15)
-
-	resultBox := widgets.NewParagraph()
-	resultBox.Title = "Result"
-	resultBox.SetRect(0, 15, 60, 20)
-
-	// Render UI
-	termui.Render(readKeysInput, writeKeysInput, writeValuesInput, resultBox)
-
-	// Event loop
-	uiEvents := termui.PollEvents()
-	for {
-		e := <-uiEvents
-		switch e.ID {
-		case "q", "<C-c>":
-			return
-		case "<Tab>":
-			if readKeysInput.BorderStyle.Fg == termui.ColorGreen {
-				readKeysInput.BorderStyle.Fg = termui.ColorWhite
-				writeKeysInput.BorderStyle.Fg = termui.ColorGreen
-			} else if writeKeysInput.BorderStyle.Fg == termui.ColorGreen {
-				writeKeysInput.BorderStyle.Fg = termui.ColorWhite
-				writeValuesInput.BorderStyle.Fg = termui.ColorGreen
-			} else {
-				writeValuesInput.BorderStyle.Fg = termui.ColorWhite
-				readKeysInput.BorderStyle.Fg = termui.ColorGreen
-			}
-			termui.Render(readKeysInput, writeKeysInput, writeValuesInput)
-		case "<Backspace>":
-			if readKeysInput.BorderStyle.Fg == termui.ColorGreen && len(readKeysInput.Text) > 0 {
-				readKeysInput.Text = readKeysInput.Text[:len(readKeysInput.Text)-1]
-			} else if writeKeysInput.BorderStyle.Fg == termui.ColorGreen && len(writeKeysInput.Text) > 0 {
-				writeKeysInput.Text = writeKeysInput.Text[:len(writeKeysInput.Text)-1]
-			} else if len(writeValuesInput.Text) > 0 {
-				writeValuesInput.Text = writeValuesInput.Text[:len(writeValuesInput.Text)-1]
-			}
-			termui.Render(readKeysInput, writeKeysInput, writeValuesInput)
-		case "<Enter>":
-			readKeys := strings.Split(readKeysInput.Text, " ")
-			writeKeys := strings.Split(writeKeysInput.Text, " ")
-			writeValues := strings.Split(writeValuesInput.Text, " ")
-
-			// Call the function to perform the transaction and fetch the result
-			go performTransaction(clt, ser, localServer, readKeys, writeKeys, writeValues)
-
-			// Reset the input fields
-			readKeysInput.Text = ""
-			writeKeysInput.Text = ""
-			writeValuesInput.Text = ""
-
-			termui.Render(readKeysInput, writeKeysInput, writeValuesInput)
-		default:
-			if e.Type == termui.KeyboardEvent {
-				if readKeysInput.BorderStyle.Fg == termui.ColorGreen {
-					readKeysInput.Text = readKeysInput.Text + e.ID
-				} else if writeKeysInput.BorderStyle.Fg == termui.ColorGreen {
-					writeKeysInput.Text = writeKeysInput.Text + e.ID
-				} else {
-					writeValuesInput.Text = writeValuesInput.Text + e.ID
-				}
-				termui.Render(readKeysInput, writeKeysInput, writeValuesInput)
-			}
-		}
-	}
-
 	// calling part
-	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
-	ser := getServerClient(*server)
-	for i := 0; i < 10; i++ {
-		go localServer.MassiveConcurrent(clt, ser)
-	}
+	//select {}
+	//localServer.concurrentOp(clt, ser)
 	//localServer.fixedRead(clt, ser)
-	time.Sleep(15 * time.Second)
-
 }
