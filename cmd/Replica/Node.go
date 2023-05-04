@@ -339,6 +339,8 @@ func (ser *Server) performRPC() {
 						_, err := node.client.SendReq(context.Background(), msg)
 						if status.Code(err) == codes.Unavailable {
 							log.Printf("Retried %d times to use rpc on node %d", j+1, node.nodeId)
+						} else {
+
 						}
 						//TODO if is shutdown, should reuse the dial function
 						if err == nil {
