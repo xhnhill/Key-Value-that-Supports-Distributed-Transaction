@@ -17,10 +17,11 @@ import (
 )
 
 var (
-	addr = flag.String("addr", "localhost:50070", "the address of client Node")
+	addr = flag.String("addr", "localhost:50071"+
+		"", "the address of client Node")
 
 	//TODO replace this place and use round robin to select server later
-	server = flag.String("ser", "localhost:50036", "the address of connected server")
+	server = flag.String("ser", "localhost:50032", "the address of connected server")
 )
 
 const (
@@ -165,6 +166,12 @@ func (localServer *cltServer) fixedRead(clt *DbClient, ser pb.CoordinateClient) 
 	rdTrans := generateFixedTrans(&clt.nodeinfo)
 	localServer.blockRead(rdTrans, ser)
 }
+func (localServer *cltServer) concurrentOp(clt *DbClient, ser pb.CoordinateClient) {
+	for i := 0; i < 20; i++ {
+		go localServer.MassiveConcurrent(clt, ser)
+	}
+	time.Sleep(300 * time.Second)
+}
 
 // TODO optimize the client to be thread safe
 func main() {
@@ -190,10 +197,7 @@ func main() {
 	// calling part
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
 	ser := getServerClient(*server)
-	for i := 0; i < 10; i++ {
-		go localServer.MassiveConcurrent(clt, ser)
-	}
+	localServer.concurrentOp(clt, ser)
 	//localServer.fixedRead(clt, ser)
-	time.Sleep(15 * time.Second)
 
 }

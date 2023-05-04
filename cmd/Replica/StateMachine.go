@@ -46,6 +46,14 @@ type Transaction struct {
 	replyTo       int32              // the same with ifWait, used only in read/apply phase
 }
 
+var tranStatusToString = map[pb.TranStatus]string{
+	pb.TranStatus_New:         "TranStatus_New",
+	pb.TranStatus_PreAccepted: "TranStatus_PreAccepted",
+	pb.TranStatus_Accepted:    "TranStatus_Accepted",
+	pb.TranStatus_Commited:    "TranStatus_Commited",
+	pb.TranStatus_Applied:     "TranStatus_Applied",
+}
+
 // Extract the keys and save it as string in the keys field of Transaction
 func (tr *Transaction) updateKeys() {
 	keySet := genKeySet(tr.in_trans)
@@ -146,6 +154,7 @@ type StateMachine struct {
 	dbName string
 	//bufferedInCh chan *pb.Message // store the
 	pq PriorityQueue //The heap which is used as reorder buffer
+	ct int32         // counter used for t0
 }
 
 // Get keys of the transaction
@@ -214,12 +223,13 @@ func (st *StateMachine) filterConflictsAccept(clfs []string, timestamp *pb.Trans
 
 func (st *StateMachine) generateTimestamp() *pb.TransTimestamp {
 	timeNow := time.Now()
+	st.ct++
 	t0 := &pb.TransTimestamp{
 		TimeStamp: &timestamppb.Timestamp{
 			Seconds: timeNow.Unix(),
 			Nanos:   int32(timeNow.Nanosecond()),
 		},
-		Seq: 0,
+		Seq: st.ct,
 		Id:  st.id,
 	}
 	return t0
@@ -238,8 +248,8 @@ func (st *StateMachine) recvTrans(req *pb.Message) {
 	//UnMarshall trans
 	trans := &pb.Trans{}
 	proto.Unmarshal(req.Data, trans)
-	// Preprocess transactions
-	trans.St = pb.TranStatus_New
+	// Preprocess transactions TODO check if correct here
+	trans.St = pb.TranStatus_PreAccepted
 	// TODO calculate Electorates
 	e := st.getRelatedReplicas(trans)
 	//update the related replicas in the innerTrans
@@ -247,6 +257,7 @@ func (st *StateMachine) recvTrans(req *pb.Message) {
 	//TODO Optimize the configuration process
 	//Set electorates size of the transaction
 	trans.EleSize = int32(len(e))
+
 	//Will set to,Id and register in the sendPreAccept function
 	preAccepts := st.sendPreAccept(e, trans)
 	st.sendMsgs(preAccepts)
@@ -330,8 +341,13 @@ const (
 // TODO register transaction
 func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
 	//tr := &Transaction{in_trans: trans}
+	//update config
+
 	tr := &Transaction{
-		config:        Config{},
+		config: Config{
+			fastSize:  int(3*trans.EleSize/4) + 1,
+			classSize: int(trans.EleSize/2) + 1,
+		},
 		in_trans:      trans,
 		keys:          make([]string, 0, 6),
 		ifTimeout:     false,
@@ -352,6 +368,7 @@ func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
 		// Because the managed statemachine will also recv PreAccept,
 		//the witnessed will be update at that stage
 		st.m_trans[trans.Id] = tr
+		st.w_trans[trans.Id] = tr
 	case Witnessed:
 		_, ok := st.m_trans[trans.Id]
 		if ok {
@@ -372,6 +389,7 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 	t0 := st.generateTimestamp()
 	trans.Id = *st.generateTransId(t0)
 	trans.T0 = t0
+	log.Printf("Node %d generate t0 for submitted trans, which t0 is %s", st.id, t0.TimeStamp.AsTime().String())
 	st.registerTrans(Managed, trans)
 	preAccept := pb.PreAcceptReq{
 		Trans: trans,
@@ -482,6 +500,16 @@ func copyTransTimestamp(timestamp *pb.TransTimestamp) *pb.TransTimestamp {
 		Id:        timestamp.Id,
 	}
 }
+func (st *StateMachine) registerClfs(curTrans *Transaction) {
+	for i := 0; i < len(curTrans.keys); i++ {
+		val, ok := st.conflictMap[curTrans.keys[i]]
+		if !ok {
+			val = make([]string, 0, 3)
+		}
+		val = append(val, curTrans.in_trans.Id)
+		st.conflictMap[curTrans.keys[i]] = val
+	}
+}
 
 // TODO process the PreAccept Request
 func (st *StateMachine) processPreAccept(req *pb.Message) {
@@ -493,7 +521,8 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	//Check is the msg is out of date
 	_, ok := st.m_trans[innerTrans.Id]
 	if ok && st.m_trans[innerTrans.Id].in_trans.St > innerTrans.St {
-		log.Printf("Receive out of date msg on Node%d with type PreAccept", st.id)
+		log.Printf("Out of date msg on Node%d with type PreAccept, curSt is%s while comming is %s", st.id,
+			tranStatusToString[st.w_trans[innerTrans.Id].in_trans.St], tranStatusToString[innerTrans.St])
 		return
 	}
 
@@ -505,6 +534,8 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	trans.updateKeys()
 	//check conflicts of transactions
 	conflicts := st.getConflicts(trans)
+	//Register conflicts
+	st.registerClfs(trans)
 	// Update specific config for this Trans
 	//TODO optimize this configuration process
 	//TODO May move to trans submission part in case of recv late from self
@@ -611,6 +642,8 @@ func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 	if curTrans.votes >= curTrans.config.classSize {
 		//Update the final version of Execution time
 		curTrans.in_trans.ExT = copyTransTimestamp(curTrans.collectT)
+		//update current trans status avoid further votes
+		curTrans.in_trans.St = pb.TranStatus_Accepted
 		accMsg := &pb.AcceptReq{
 			Trans: curTrans.in_trans,
 			ExT:   curTrans.collectT,
@@ -628,8 +661,7 @@ func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 			})
 		}
 		st.sendMsgs(msgs)
-		//update current trans status avoid further votes
-		curTrans.in_trans.St = pb.TranStatus_Accepted
+
 		//TODO clear votes, because votes will be used in AcceptOk stage
 	}
 }
@@ -663,6 +695,9 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 		}
 		if curTrans.fVotes >= curTrans.config.fastSize {
 			//perform the fast path logic
+			curTrans.in_trans.St = pb.TranStatus_Commited
+			//update curTrans's execution time
+			curTrans.in_trans.ExT = curTrans.in_trans.T0
 			deps := &pb.Deps{Items: st.genDepsWithTransId(curTrans, st.convDepsSet(curTrans.deps))}
 			commitMsg := &pb.CommitReq{
 				Trans: curTrans.in_trans,
@@ -698,15 +733,18 @@ func (st *StateMachine) processAccept(req *pb.Message) {
 	accept := &pb.AcceptReq{}
 	proto.Unmarshal(req.Data, accept)
 	transId := accept.Trans.Id
+	innerTrans := accept.Trans
 	//Update the T in trans
 	curTrans, ok := st.w_trans[transId]
 	if !ok {
 		st.registerTrans(Witnessed, accept.Trans)
 		curTrans = st.w_trans[transId]
 	}
+
 	//check is msg is out of date
 	if curTrans.in_trans.St > accept.Trans.St {
-		log.Printf("Receive out of date msg on Node%d with type Accept", st.id)
+		log.Printf("Receive out of date msg on Node%d with type Accept, curSt is%s while comming is %s", st.id,
+			tranStatusToString[st.w_trans[innerTrans.Id].in_trans.St], tranStatusToString[innerTrans.St])
 		return
 	}
 	if CompareTimestamp(accept.ExT, st.T[transId]) {
@@ -781,6 +819,7 @@ func (st *StateMachine) commitMessage(req *pb.Message) {
 	commitMsg := &pb.CommitReq{}
 	proto.Unmarshal(req.Data, commitMsg)
 	transId := commitMsg.Trans.Id
+	innerTrans := commitMsg.Trans
 	//Modify the status of the transaction
 	curTrans, ok := st.w_trans[transId]
 	if !ok {
@@ -788,7 +827,8 @@ func (st *StateMachine) commitMessage(req *pb.Message) {
 		curTrans = st.w_trans[transId]
 	}
 	if curTrans.in_trans.St > commitMsg.Trans.St {
-		log.Printf("Receive out of date msg on Node%d with type Commit", st.id)
+		log.Printf("out of date msg on Node%d with type Commit, cur st is%s while comming st %s", st.id,
+			tranStatusToString[st.w_trans[innerTrans.Id].in_trans.St], tranStatusToString[innerTrans.St])
 		return
 	}
 	curTrans.in_trans.St = pb.TranStatus_Commited
@@ -859,6 +899,7 @@ func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 	//Only check trans which sets the ifWait attribute
 	if !curTrans.ifWait {
 		return
+
 	}
 	//Check if await condition satisfied
 	//TODO check commit await
@@ -867,8 +908,11 @@ func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 	cShard := st.curShard.ShardId
 	for i := 0; i < len(curDeps); i++ {
 		tarId := curDeps[i].Id
-		tarTrans := st.w_trans[tarId]
-		if shareSameShard(tarTrans.in_trans.RelatedShards, cShard) {
+		if shareSameShard(curDeps[i].Shards, cShard) {
+			tarTrans, ok := st.w_trans[tarId]
+			if !ok {
+				return
+			}
 			if tarTrans.in_trans.St == pb.TranStatus_Applied ||
 				tarTrans.in_trans.St == pb.TranStatus_Commited {
 				if CompareTimestamp(curTrans.in_trans.ExT, tarTrans.in_trans.ExT) {
@@ -934,6 +978,11 @@ func (st *StateMachine) processRead(req *pb.Message) {
 		st.registerTrans(Witnessed, readMsg.Trans)
 		curTrans = st.w_trans[readMsg.Trans.Id]
 	}
+	if curTrans.in_trans.St > readMsg.Trans.St {
+		return
+	}
+	//update innerTrans, Because there will be out order msg here
+	curTrans.in_trans = readMsg.Trans
 	//Update deps locally according to Read request
 	curTrans.in_trans.Deps = readMsg.Deps
 	//update the outer transaction into waiting status, labeled by ifWait attribute
@@ -1042,16 +1091,33 @@ func (st *StateMachine) writeRes(writes []*pb.WriteOp) error {
 	})
 	return err
 }
+func depsToString(items []*pb.DepsItem) string {
+	s := "Deps is "
+	for i := 0; i < len(items); i++ {
+		s = s + "   " + items[i].Id
+	}
+	return s
+}
 func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 	//Check if await condition satisfied
 	//TODO check commit await
+	if !curTrans.ifWait {
+		return
+	}
 	curDeps := curTrans.in_trans.Deps.Items
 	//Current shard, only deps related to this shard is considered
 	cShard := st.curShard.ShardId
 	for i := 0; i < len(curDeps); i++ {
 		tarId := curDeps[i].Id
-		tarTrans := st.w_trans[tarId]
-		if shareSameShard(tarTrans.in_trans.RelatedShards, cShard) {
+
+		if tarId == curTrans.in_trans.Id {
+			continue
+		}
+		if shareSameShard(curDeps[i].Shards, cShard) {
+			tarTrans, ok := st.w_trans[tarId]
+			if !ok {
+				return
+			}
 			if tarTrans.in_trans.St == pb.TranStatus_Applied ||
 				tarTrans.in_trans.St == pb.TranStatus_Commited {
 				if CompareTimestamp(curTrans.in_trans.ExT, tarTrans.in_trans.ExT) {
@@ -1073,6 +1139,7 @@ func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 		err := st.writeRes(fWrites)
 		if err == nil {
 			curTrans.in_trans.St = pb.TranStatus_Applied
+			log.Printf("Write %s on node%d, whose deps is %s", fWrites[0].Val, st.id, depsToString(curDeps))
 			st.triggerCheckOnAll()
 			return
 		} else {
@@ -1092,6 +1159,11 @@ func (st *StateMachine) processApply(req *pb.Message) {
 		st.registerTrans(Witnessed, applyMsg.Trans)
 		curTrans = st.w_trans[applyMsg.Trans.Id]
 	}
+	if curTrans.in_trans.St > applyMsg.Trans.St {
+		return
+	}
+	//Update inner Trans, in case of out of order msg
+	curTrans.in_trans = applyMsg.Trans
 	//Update deps of locally trans
 	curTrans.in_trans.Deps = applyMsg.DepsP
 	//update ifWait attribute of outer transaction
@@ -1148,10 +1220,10 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 	case pb.MsgType_Recover:
 		log.Printf("Receive req")
 	case pb.MsgType_Tick:
-		log.Printf("Execute logics for tick")
+		//log.Printf("Execute logics for tick")
 		st.processTick(req)
 	case pb.MsgType_SubmitTrans:
-		log.Printf("Execute SubmitTrans request")
+		log.Printf("Execute SubmitTrans request on node%d", st.id)
 		st.recvTrans(req)
 	}
 }
@@ -1211,25 +1283,30 @@ func (pq *PriorityQueue) Pop() interface{} {
 
 // The reorder version that buffered the message
 func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Message) {
+	ticker := time.NewTicker(1 * time.Second)
 	for {
-		//check heap first
-		now := time.Now()
-		for st.pq.Len() > 0 {
-			fir := st.pq[0]
-			if now.After(fir.T0.TimeStamp.AsTime().Add(time.Second)) {
-				st.executeReq(heap.Pop(&st.pq).(*pb.Message))
+		select {
+		case <-ticker.C:
+			//check heap first
+			now := time.Now()
+			for st.pq.Len() > 0 {
+				fir := st.pq[0]
+				if now.Before(fir.T0.TimeStamp.AsTime().Add(1 * time.Second)) {
+					st.executeReq(heap.Pop(&st.pq).(*pb.Message))
+				}
 			}
-		}
-		val, ok := <-inCh
-		if !ok {
-			log.Printf("The channel of the node has been closed, nodeId is %d", st.id)
-		}
-		if val.T0 != nil {
-			//put into the heap
-			heap.Push(&st.pq, val)
-			continue
-		} else {
-			st.executeReq(val)
+		case val, ok := <-inCh:
+			if !ok {
+				log.Printf("The channel of the node has been closed, nodeId is %d", st.id)
+			}
+			if val.T0 != nil {
+				//put into the heap
+				heap.Push(&st.pq, val)
+				continue
+			} else {
+				st.executeReq(val)
+			}
+
 		}
 
 	}
