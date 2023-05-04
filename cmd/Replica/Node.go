@@ -452,6 +452,7 @@ func main() {
 	// Init statemachine
 	localServer.initStateMachine()
 	// Start to run state machine
-	localServer.stateMachine.mainLoop(localServer.inCh, localServer.outCh)
+	//localServer.stateMachine.mainLoop(localServer.inCh, localServer.outCh)
+	localServer.stateMachine.reoderMainLoop(localServer.inCh, localServer.outCh)
 
 }

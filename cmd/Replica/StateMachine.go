@@ -490,6 +490,13 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	proto.Unmarshal(req.Data, preAccept)
 	innerTrans = preAccept.Trans
 	innerTrans.T0 = preAccept.T0
+	//Check is the msg is out of date
+	_, ok := st.m_trans[innerTrans.Id]
+	if ok && st.m_trans[innerTrans.Id].in_trans.St > innerTrans.St {
+		log.Printf("Receive out of date msg on Node%d with type PreAccept", st.id)
+		return
+	}
+
 	//Register the transaction as witnesses
 	st.registerTrans(Witnessed, innerTrans)
 	trans := st.w_trans[innerTrans.Id]
@@ -692,7 +699,16 @@ func (st *StateMachine) processAccept(req *pb.Message) {
 	proto.Unmarshal(req.Data, accept)
 	transId := accept.Trans.Id
 	//Update the T in trans
-	curTrans := st.w_trans[transId]
+	curTrans, ok := st.w_trans[transId]
+	if !ok {
+		st.registerTrans(Witnessed, accept.Trans)
+		curTrans = st.w_trans[transId]
+	}
+	//check is msg is out of date
+	if curTrans.in_trans.St > accept.Trans.St {
+		log.Printf("Receive out of date msg on Node%d with type Accept", st.id)
+		return
+	}
 	if CompareTimestamp(accept.ExT, st.T[transId]) {
 		st.T[transId] = copyTransTimestamp(accept.ExT)
 	}
@@ -766,7 +782,15 @@ func (st *StateMachine) commitMessage(req *pb.Message) {
 	proto.Unmarshal(req.Data, commitMsg)
 	transId := commitMsg.Trans.Id
 	//Modify the status of the transaction
-	curTrans := st.w_trans[transId]
+	curTrans, ok := st.w_trans[transId]
+	if !ok {
+		st.registerTrans(Witnessed, commitMsg.Trans)
+		curTrans = st.w_trans[transId]
+	}
+	if curTrans.in_trans.St > commitMsg.Trans.St {
+		log.Printf("Receive out of date msg on Node%d with type Commit", st.id)
+		return
+	}
 	curTrans.in_trans.St = pb.TranStatus_Commited
 	//Update Execution time for innerTrans
 	curTrans.in_trans.ExT = commitMsg.ExT
@@ -905,7 +929,11 @@ func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 func (st *StateMachine) processRead(req *pb.Message) {
 	readMsg := &pb.ReadReq{}
 	proto.Unmarshal(req.Data, readMsg)
-	curTrans := st.w_trans[readMsg.Trans.Id]
+	curTrans, ok := st.w_trans[readMsg.Trans.Id]
+	if !ok {
+		st.registerTrans(Witnessed, readMsg.Trans)
+		curTrans = st.w_trans[readMsg.Trans.Id]
+	}
 	//Update deps locally according to Read request
 	curTrans.in_trans.Deps = readMsg.Deps
 	//update the outer transaction into waiting status, labeled by ifWait attribute
@@ -1059,7 +1087,11 @@ func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 func (st *StateMachine) processApply(req *pb.Message) {
 	applyMsg := &pb.ApplyReq{}
 	proto.Unmarshal(req.Data, applyMsg)
-	curTrans := st.w_trans[applyMsg.Trans.Id]
+	curTrans, ok := st.w_trans[applyMsg.Trans.Id]
+	if !ok {
+		st.registerTrans(Witnessed, applyMsg.Trans)
+		curTrans = st.w_trans[applyMsg.Trans.Id]
+	}
 	//Update deps of locally trans
 	curTrans.in_trans.Deps = applyMsg.DepsP
 	//update ifWait attribute of outer transaction
