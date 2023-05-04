@@ -21,7 +21,7 @@ var (
 		"", "the address of client Node")
 
 	//TODO replace this place and use round robin to select server later
-	server = flag.String("ser", "localhost:50034", "the address of connected server")
+	server = flag.String("ser", "localhost:50036", "the address of connected server")
 )
 
 const (

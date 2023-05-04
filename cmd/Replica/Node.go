@@ -290,7 +290,7 @@ func (ser *Server) sendToClient(req *pb.Message) {
 	f := func(clt pb.CoordinateClient) {
 		_, err := clt.SendReq(context.Background(), req)
 		if err != nil {
-			log.Printf("Error happend when sending results to clients")
+			log.Printf("Error happend when sending results to clients on node%d ", ser.node.nodeId)
 		} else {
 			log.Printf("Successful sending to %s from node%d", addr, ser.node.nodeId)
 		}

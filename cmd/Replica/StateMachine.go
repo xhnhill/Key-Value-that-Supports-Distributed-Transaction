@@ -252,6 +252,7 @@ func (st *StateMachine) recvTrans(req *pb.Message) {
 	st.sendMsgs(preAccepts)
 	//Begin to set timeout for fast quorum
 	curTrans := st.m_trans[trans.Id]
+	curTrans.couldFast = true
 	tarTimeout := time.Now().Add(FQ_TIMEOUT)
 	curTrans.endTime = &timestamppb.Timestamp{
 		Seconds: tarTimeout.Unix(),
@@ -378,6 +379,10 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 	t0 := st.generateTimestamp()
 	trans.Id = *st.generateTransId(t0)
 	trans.T0 = t0
+	//Init deps part
+	trans.Deps = &pb.Deps{
+		Items: make([]*pb.DepsItem, 0, 0),
+	}
 	log.Printf("Node %d generate t0 for submitted trans, which t0 is %s", st.id, t0.TimeStamp.AsTime().String())
 	st.registerTrans(Managed, trans)
 	preAccept := pb.PreAcceptReq{
@@ -583,12 +588,33 @@ func (st *StateMachine) genDepsPreAccept(cfl []string, t0 *pb.TransTimestamp) *p
 	}
 	return &pb.Deps{Items: deps}
 }
+func mergeDeps(d1 []*pb.DepsItem, d2 []*pb.DepsItem) []*pb.DepsItem {
+	set := make(map[string]bool)
+	res := make([]*pb.DepsItem, 0, 5)
+	for i := 0; i < len(d1); i++ {
+		_, ok := set[d1[i].Id]
+		if !ok {
+			set[d1[i].Id] = true
+			res = append(res, d1[i])
+		}
+	}
+	for i := 0; i < len(d2); i++ {
+		_, ok := set[d2[i].Id]
+		if !ok {
+			set[d2[i].Id] = true
+			res = append(res, d2[i])
+		}
+	}
+	return res
+
+}
 
 // update corresponding deps in transaction with transId
 func (st *StateMachine) updateDeps(cfl []*pb.DepsItem, trans *Transaction) {
 	for i := 0; i < len(cfl); i++ {
 		trans.deps[cfl[i].Id] = true
 	}
+	trans.in_trans.Deps.Items = mergeDeps(trans.in_trans.Deps.Items, cfl)
 }
 
 // Update the deps in transaction at AcceptOk stage, use acceptDeps in Transaction
@@ -599,6 +625,7 @@ func (st *StateMachine) updateDepsAcceptOk(cfl []*pb.DepsItem, trans *Transactio
 	for i := 0; i < len(cfl); i++ {
 		trans.acceptDeps[cfl[i].Id] = true
 	}
+	trans.in_trans.Deps.Items = mergeDeps(trans.in_trans.Deps.Items, cfl)
 }
 func (st *StateMachine) convDepsSet(depsSet map[string]bool) []string {
 	var deps []string
@@ -636,7 +663,7 @@ func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 		accMsg := &pb.AcceptReq{
 			Trans: curTrans.in_trans,
 			ExT:   curTrans.collectT,
-			Deps:  &pb.Deps{Items: st.genDepsWithTransId(curTrans, st.convDepsSet(curTrans.deps))},
+			Deps:  &pb.Deps{Items: curTrans.in_trans.Deps.Items},
 		}
 		//send acceptMsg
 		data, _ := proto.Marshal(accMsg)
@@ -687,7 +714,7 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 			curTrans.in_trans.St = pb.TranStatus_Commited
 			//update curTrans's execution time
 			curTrans.in_trans.ExT = curTrans.in_trans.T0
-			deps := &pb.Deps{Items: st.genDepsWithTransId(curTrans, st.convDepsSet(curTrans.deps))}
+			deps := &pb.Deps{Items: curTrans.in_trans.Deps.Items}
 			commitMsg := &pb.CommitReq{
 				Trans: curTrans.in_trans,
 				ExT:   curTrans.in_trans.T0,
@@ -769,7 +796,7 @@ func (st *StateMachine) checkAcceptOkVotes(curTrans *Transaction) {
 	curTrans.acceptVotes++
 	if curTrans.acceptVotes >= curTrans.config.classSize {
 		//Pay attention, the Ext is the final decided version of collectT in outer Trans
-		deps := &pb.Deps{Items: st.genDepsWithTransId(curTrans, st.convDepsSet(curTrans.acceptDeps))}
+		deps := &pb.Deps{Items: curTrans.in_trans.Deps.Items}
 		commitMsg := &pb.CommitReq{
 			Trans: curTrans.in_trans,
 			ExT:   curTrans.in_trans.ExT,
