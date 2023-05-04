@@ -168,6 +168,7 @@ message Message{
   bytes data = 2;
   int32 from = 3;
   int32 to = 4;
+  TransTimestamp t0 = 5;
 }
 
 service Coordinate {

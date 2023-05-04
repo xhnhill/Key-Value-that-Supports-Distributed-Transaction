@@ -2,6 +2,7 @@ package main
 
 import (
 	pb "Distributed_Key_Value_Store/cmd/Primitive"
+	"container/heap"
 	"crypto/sha256"
 	"fmt"
 	"github.com/dgraph-io/badger/v4"
@@ -143,6 +144,8 @@ type StateMachine struct {
 	db *badger.DB
 	//DB's name
 	dbName string
+	//bufferedInCh chan *pb.Message // store the
+	pq PriorityQueue //The heap which is used as reorder buffer
 }
 
 // Get keys of the transaction
@@ -191,7 +194,7 @@ func (st *StateMachine) filterConflictsAccept(clfs []string, timestamp *pb.Trans
 	for i := 0; i < len(clfs); i++ {
 		tarTrans := st.w_trans[clfs[i]]
 		tarT0 := tarTrans.in_trans.T0
-		if compareTimestamp(timestamp, tarT0) {
+		if CompareTimestamp(timestamp, tarT0) {
 			res = append(res, tarTrans.in_trans.Id)
 		}
 	}
@@ -381,6 +384,7 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 			Data: msgData,
 			From: st.id,
 			To:   tars[i],
+			T0:   t0,
 		})
 	}
 	//Update trans status
@@ -458,7 +462,7 @@ func equals(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
 }
 
 // true means greater
-func compareTimestamp(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
+func CompareTimestamp(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
 	tp1 := t1.TimeStamp.AsTime()
 	tp2 := t2.TimeStamp.AsTime()
 	if tp1.Equal(tp2) {
@@ -508,7 +512,7 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	for i := 0; i < len(conflicts); i++ {
 		// Compare with T
 		tarTimestamp := st.T[conflicts[i]]
-		if !compareTimestamp(tTrans, tarTimestamp) {
+		if !CompareTimestamp(tTrans, tarTimestamp) {
 			tTrans = copyTransTimestamp(tarTimestamp)
 			tTrans.Seq = tTrans.Seq + 1
 			tTrans.Id = st.id
@@ -543,7 +547,7 @@ func (st *StateMachine) genDepsPreAccept(cfl []string, t0 *pb.TransTimestamp) *p
 	for i := 0; i < len(cfl); i++ {
 		cpTrans := st.w_trans[cfl[i]].in_trans
 		tarT0 := cpTrans.T0
-		if compareTimestamp(t0, tarT0) {
+		if CompareTimestamp(t0, tarT0) {
 			deps = append(deps, &pb.DepsItem{
 				Id:     cfl[i],
 				Shards: cpTrans.RelatedShards,
@@ -639,7 +643,7 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	curTrans.votes++
 	//update collectT proposed by PreAcceptOK
 	curTrans.collectT = copyTransTimestamp(curTrans.in_trans.T0)
-	if compareTimestamp(preAcceptOk.T, curTrans.collectT) {
+	if CompareTimestamp(preAcceptOk.T, curTrans.collectT) {
 		curTrans.collectT = copyTransTimestamp(preAcceptOk.T)
 	}
 	//TODO check if must slow path now
@@ -689,7 +693,7 @@ func (st *StateMachine) processAccept(req *pb.Message) {
 	transId := accept.Trans.Id
 	//Update the T in trans
 	curTrans := st.w_trans[transId]
-	if compareTimestamp(accept.ExT, st.T[transId]) {
+	if CompareTimestamp(accept.ExT, st.T[transId]) {
 		st.T[transId] = copyTransTimestamp(accept.ExT)
 	}
 	// Set status of the transaction
@@ -843,7 +847,7 @@ func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 		if shareSameShard(tarTrans.in_trans.RelatedShards, cShard) {
 			if tarTrans.in_trans.St == pb.TranStatus_Applied ||
 				tarTrans.in_trans.St == pb.TranStatus_Commited {
-				if compareTimestamp(curTrans.in_trans.ExT, tarTrans.in_trans.ExT) {
+				if CompareTimestamp(curTrans.in_trans.ExT, tarTrans.in_trans.ExT) {
 					if tarTrans.in_trans.St == pb.TranStatus_Commited {
 						return
 					}
@@ -1022,7 +1026,7 @@ func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 		if shareSameShard(tarTrans.in_trans.RelatedShards, cShard) {
 			if tarTrans.in_trans.St == pb.TranStatus_Applied ||
 				tarTrans.in_trans.St == pb.TranStatus_Commited {
-				if compareTimestamp(curTrans.in_trans.ExT, tarTrans.in_trans.ExT) {
+				if CompareTimestamp(curTrans.in_trans.ExT, tarTrans.in_trans.ExT) {
 					if tarTrans.in_trans.St == pb.TranStatus_Commited {
 						return
 					}
@@ -1127,6 +1131,74 @@ func (st *StateMachine) mainLoop(inCh chan *pb.Message, outCh chan *pb.Message) 
 			log.Printf("The channel of the node has been closed, nodeId is %d", st.id)
 		}
 		st.executeReq(val)
+
+	}
+}
+
+// Define a slice of Items that implements the heap.Interface
+type PriorityQueue []*pb.Message
+
+func (pq PriorityQueue) Len() int {
+	return len(pq)
+}
+func CpTimestamp(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
+	tp1 := t1.TimeStamp.AsTime()
+	tp2 := t2.TimeStamp.AsTime()
+	if tp1.Equal(tp2) {
+		if t1.Seq == t2.Seq {
+			return t1.Id > t2.Id
+		} else {
+			return t1.Seq > t2.Seq
+		}
+	} else {
+		return tp1.After(tp2)
+	}
+}
+func (pq PriorityQueue) Less(i, j int) bool {
+	// Use the custom comparison function to determine which item has higher priority
+	return CpTimestamp(pq[j].T0, pq[i].T0)
+}
+
+func (pq PriorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+}
+
+func (pq *PriorityQueue) Push(x interface{}) {
+	item := x.(*pb.Message)
+
+	*pq = append(*pq, item)
+}
+
+func (pq *PriorityQueue) Pop() interface{} {
+	old := *pq
+	n := len(old)
+	item := old[n-1] // for safety
+	*pq = old[0 : n-1]
+	return item
+}
+
+// The reorder version that buffered the message
+func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Message) {
+	for {
+		//check heap first
+		now := time.Now()
+		for st.pq.Len() > 0 {
+			fir := st.pq[0]
+			if now.After(fir.T0.TimeStamp.AsTime().Add(time.Second)) {
+				st.executeReq(heap.Pop(&st.pq).(*pb.Message))
+			}
+		}
+		val, ok := <-inCh
+		if !ok {
+			log.Printf("The channel of the node has been closed, nodeId is %d", st.id)
+		}
+		if val.T0 != nil {
+			//put into the heap
+			heap.Push(&st.pq, val)
+			continue
+		} else {
+			st.executeReq(val)
+		}
 
 	}
 }

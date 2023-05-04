@@ -420,6 +420,7 @@ func main() {
 			tickNum:     0,
 			db:          db,
 			dbName:      dbName,
+			pq:          make([]*pb.Message, 0, 200),
 		},
 	}
 	log.Printf("Node %d, begin to load and address is %s"+": %d", nodeId, ip, port)
