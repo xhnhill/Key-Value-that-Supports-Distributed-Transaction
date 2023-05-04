@@ -2,8 +2,10 @@ package main
 
 import (
 	pb "Distributed_Key_Value_Store/cmd/Primitive"
+	"bytes"
 	"container/heap"
 	"crypto/sha256"
+	"encoding/gob"
 	"fmt"
 	"github.com/dgraph-io/badger/v4"
 	"google.golang.org/protobuf/proto"
@@ -1234,6 +1236,7 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 		st.processReadOk(req)
 	case pb.MsgType_Apply:
 		log.Printf("Receive Apply Msg from %d", req.From)
+		st.storeStatemachine()
 		st.processApply(req)
 	case pb.MsgType_Recover:
 		log.Printf("Receive req")
@@ -1246,6 +1249,23 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 	}
 }
 
+func (st *StateMachine) storeStatemachine() {
+	// create a buffer to encode the struct
+	buf := new(bytes.Buffer)
+	// create an encoder and encode the struct
+	enc := gob.NewEncoder(buf)
+	err := enc.Encode(st)
+	if err != nil {
+		panic(err)
+	}
+	// create a decoder and decode the struct from the buffer
+	dec := gob.NewDecoder(buf)
+	newSt := StateMachine{}
+	err = dec.Decode(&newSt)
+	if err != nil {
+		panic(err)
+	}
+}
 func (st *StateMachine) mainLoop(inCh chan *pb.Message, outCh chan *pb.Message) {
 	for {
 		val, ok := <-inCh
