@@ -211,7 +211,7 @@ func (ser *Server) startTicker(inCh chan *pb.Message) *time.Ticker {
 				Data: data,
 			}
 			inCh <- &req
-			log.Printf("Send Tick Msg on Node %d", ser.node.nodeId)
+			//log.Printf("Send Tick Msg on Node %d", ser.node.nodeId)
 		}
 	}
 
@@ -290,7 +290,7 @@ func (ser *Server) sendToClient(req *pb.Message) {
 	f := func(clt pb.CoordinateClient) {
 		_, err := clt.SendReq(context.Background(), req)
 		if err != nil {
-			log.Printf("Error happend when sending results to clients")
+			log.Printf("Error happend when sending results to clients on node%d ", ser.node.nodeId)
 		} else {
 			log.Printf("Successful sending to %s from node%d", addr, ser.node.nodeId)
 		}
@@ -309,13 +309,13 @@ func (ser *Server) performRPC() {
 			log.Printf("output channel closed on server %d", ser.node.nodeId)
 			return
 		} else {
-			log.Printf("Received msg on outChannel on node%d", ser.node.nodeId)
+			//log.Printf("Received msg on outChannel on node%d", ser.node.nodeId)
 		}
 		tarNodeId := int(rpc.To)
 		//Avoid network for the msg sending to self
-		if rpc.To == ser.stateMachine.id {
+		if rpc.From == ser.stateMachine.id && rpc.To == ser.stateMachine.id {
 			ser.inCh <- rpc
-			log.Printf("Send %s from Node%d to Node%d", msgTypeToString[rpc.Type], rpc.To, rpc.To)
+			//log.Printf("Send %s from Node%d to Node%d", msgTypeToString[rpc.Type], rpc.To, rpc.To)
 			continue
 		}
 		//Send specific msg to clients
@@ -329,9 +329,10 @@ func (ser *Server) performRPC() {
 			// TODO maybe need to wrap the sending, in case sending fail
 			// TODO anything we need to add to context?
 			f := func(node *Node, msg *pb.Message) {
-				log.Printf("Send %s from Node%d to Node%d", msgTypeToString[msg.Type], node.nodeId, msg.To)
+
 				//TODO error handling here
 				_, err := node.client.SendReq(context.Background(), msg)
+				log.Printf("Send %s from Node%d to Node%d", msgTypeToString[msg.Type], ser.node.nodeId, msg.To)
 				if err != nil {
 					log.Printf(ERROR+" Could not use rpc on node %d with err %v", node.nodeId, err)
 					for j := 0; j < 5; j++ {
@@ -447,10 +448,10 @@ func main() {
 	//time.Sleep(20 * time.Second)
 	nodes = createClients(nodes)
 	localServer.updatePeerClients(nodes)
-	// Start a go routine to send gRPC calls
-	go localServer.performRPC()
 	// Init statemachine
 	localServer.initStateMachine()
+	// Start a go routine to send gRPC calls
+	go localServer.performRPC()
 	// Start to run state machine
 	//localServer.stateMachine.mainLoop(localServer.inCh, localServer.outCh)
 	localServer.stateMachine.reoderMainLoop(localServer.inCh, localServer.outCh)
