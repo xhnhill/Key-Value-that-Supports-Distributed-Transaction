@@ -149,7 +149,7 @@ func (s *cltServer) blockRead(trans *pb.Trans, clt pb.CoordinateClient) {
 	s.transMap[trans.CId] = waitCh
 	s.mu.Unlock()
 	res := <-waitCh
-	log.Println("Transaction return results:", convertRes2Str(res))
+	log.Println("Transaction return results:" + convertRes2Str(res))
 }
 func (s *cltServer) SendReq(ctx context.Context, in *pb.Message) (*emptypb.Empty, error) {
 	finalRes := &pb.FinalRes{}
