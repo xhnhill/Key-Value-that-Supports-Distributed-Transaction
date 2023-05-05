@@ -21,7 +21,7 @@ var (
 		"", "the address of client Node")
 
 	//TODO replace this place and use round robin to select server later
-	server = flag.String("ser", "localhost:50036", "the address of connected server")
+	server = flag.String("ser", "localhost:50032", "the address of connected server")
 )
 
 const (
@@ -35,14 +35,14 @@ type DbClient struct {
 // TODO get transaction from command input
 
 func generateRead(keys []string) []*pb.ReadOp {
-	var reads []*pb.ReadOp
+	reads := make([]*pb.ReadOp, 0, 3)
 	for i := 0; i < len(keys); i++ {
 		reads = append(reads, &pb.ReadOp{Key: keys[i]})
 	}
 	return reads
 }
 func generateWrite(keys []string, vals []string) []*pb.WriteOp {
-	var writes []*pb.WriteOp
+	writes := make([]*pb.WriteOp, 0, 3)
 	for i := 0; i < len(keys); i++ {
 		writes = append(writes, &pb.WriteOp{
 			Key: keys[i],
@@ -73,10 +73,12 @@ func generateRandomTrans(clt *pb.NodeInfo) *pb.Trans {
 	var rKeys []string
 	var wKeys []string
 	var wVals []string
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 10; i++ {
 		rKeys = append(rKeys, "rk"+strconv.Itoa(i))
 		wKeys = append(wKeys, "rk"+strconv.Itoa(i))
 		wVals = append(wVals, "val "+strconv.Itoa(i)+genUUID())
+		wKeys = append(wKeys, "rk"+genUUID())
+		wVals = append(wVals, "val "+genUUID())
 	}
 	return generateTrans(rKeys, wKeys, wVals, clt)
 }

@@ -194,7 +194,7 @@ func (ser *Server) generateShards(n int) {
 
 func (ser *Server) startTicker(inCh chan *pb.Message) *time.Ticker {
 	//TODO please modify back after debugging
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 
 	for {
 		select {

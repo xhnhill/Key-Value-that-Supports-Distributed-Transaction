@@ -17,7 +17,7 @@ import (
 
 const PEER_TIMEOUT int = 60 // unit is second
 const ERROR string = "[ERROR]: "
-const FQ_TIMEOUT time.Duration = 20 * time.Second
+const FQ_TIMEOUT time.Duration = 5 * time.Second
 
 // TODO config struct
 type Config struct {
