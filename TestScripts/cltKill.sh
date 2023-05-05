@@ -10,3 +10,4 @@ if [ -n "$PID" ]; then
 else
   echo "concrr is not running"
 fi
+
