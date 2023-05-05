@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "cmd/gRPCService";
+service GetHeartBeat{
+  rpc GetTimestamp(google.protobuf.Timestamp) returns (google.protobuf.Timestamp) {}
+}
+message HeartBeat{
+  google.protobuf.Timestamp timeStamp =1;
+}
