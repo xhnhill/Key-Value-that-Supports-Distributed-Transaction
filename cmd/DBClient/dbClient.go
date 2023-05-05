@@ -41,14 +41,16 @@ type DbClient struct {
 // TODO get transaction from command input
 
 func generateRead(keys []string) []*pb.ReadOp {
-	var reads []*pb.ReadOp
+	//var reads []*pb.ReadOp
+	reads := make([]*pb.ReadOp, 0, 3)
 	for i := 0; i < len(keys); i++ {
 		reads = append(reads, &pb.ReadOp{Key: keys[i]})
 	}
 	return reads
 }
 func generateWrite(keys []string, vals []string) []*pb.WriteOp {
-	var writes []*pb.WriteOp
+	//var writes []*pb.WriteOp
+	writes := make([]*pb.WriteOp, 0, 3)
 	for i := 0; i < len(keys); i++ {
 		writes = append(writes, &pb.WriteOp{
 			Key: keys[i],
@@ -63,8 +65,11 @@ func genUUID() string {
 
 }
 func generateTrans(rKeys []string, wKeys []string, wVals []string, clt *pb.NodeInfo) *pb.Trans {
+	log.Println("generateTrans called")
 	reads := generateRead(rKeys)
 	writes := generateWrite(wKeys, wVals)
+	log.Println("generateTrans called with reads", reads)
+	log.Println("generateTrans called with writes", writes)
 	return &pb.Trans{
 		CId:        genUUID(),
 		Reads:      reads,
@@ -120,12 +125,14 @@ func sendMsg(data []byte, tar pb.CoordinateClient) {
 }
 
 // Just a helper function which helps to test
-func getServerClient(serAddr string) pb.CoordinateClient {
+func getServerClient(serAddr string) (pb.CoordinateClient, error) {
+	log.Println("getServerClient called with address:", serAddr)
 	conn, err := grpc.Dial(serAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("did not connect: %v which add is %s", err, server)
+		log.Printf("did not connect: %v which add is %s", err, server)
+		return nil, err
 	}
-	return pb.NewCoordinateClient(conn)
+	return pb.NewCoordinateClient(conn), nil
 }
 
 type cltServer struct {
@@ -142,12 +149,15 @@ func convertRes2Str(res []*pb.SingleResult) string {
 	return str
 }
 func (s *cltServer) blockRead(trans *pb.Trans, clt pb.CoordinateClient) {
+	log.Println("blockRead called")
 	rawMsg, _ := proto.Marshal(trans)
 	sendMsg(rawMsg, clt)
+	log.Println("Before Lock")
 	s.mu.Lock()
 	waitCh := make(chan []*pb.SingleResult, 1)
 	s.transMap[trans.CId] = waitCh
 	s.mu.Unlock()
+	log.Println("After Lock")
 	res := <-waitCh
 	log.Printf(convertRes2Str(res))
 }
@@ -160,7 +170,6 @@ func (s *cltServer) SendReq(ctx context.Context, in *pb.Message) (*emptypb.Empty
 	ch := s.transMap[cId]
 	ch <- finalRes.Res
 	return &emptypb.Empty{}, nil
-
 }
 func (localServer *cltServer) MassiveConcurrent(clt *DbClient, ser pb.CoordinateClient) {
 	rdTrans := generateRandomTrans(&clt.nodeinfo)
@@ -182,7 +191,6 @@ func (localServer *cltServer) concurrentOp(clt *DbClient, ser pb.CoordinateClien
 func performTransaction(clt *DbClient, ser pb.CoordinateClient, localServer *cltServer, readKeys, writeKeys, writeValues []string) {
 	trans := generateTrans(readKeys, writeKeys, writeValues, &clt.nodeinfo)
 	localServer.blockRead(trans, ser)
-
 }
 
 func runGUI(localServer *cltServer) {
@@ -212,19 +220,28 @@ func runGUI(localServer *cltServer) {
 	// Create buttons and set actions
 	connectBtn := widget.NewButton("Connect", func() {
 		*server = serverIPInput.Text + ":" + serverPortInput.Text
-		ser = getServerClient(*server)
-		//log.Println("Connected to server:", *server)
+		var err error
+		ser, err = getServerClient(*server)
+		if err != nil {
+			log.Println("Failed to connect to server:", *server)
+			return
+		}
+		log.Println("Connected to server:", *server)
 	})
 	performTransBtn := widget.NewButton("Perform Transaction", func() {
 		readKeys := strings.Split(readKeysEntry.Text, ",")
 		writeKeys := strings.Split(writeKeysEntry.Text, ",")
 		writeValues := strings.Split(writeValuesEntry.Text, ",")
+		//if readKeysEntry.Text == "" {
+		//	log.Println("Please enter both server IP and port before connecting.")
+		//	return
+		//}
 
 		go performTransaction(clt, ser, localServer, readKeys, writeKeys, writeValues)
 	})
-	concurrentOpBtn := widget.NewButton("Concurrent Operation", func() {
-		go localServer.concurrentOp(clt, ser)
-	})
+	//concurrentOpBtn := widget.NewButton("Concurrent Operation", func() {
+	//	go localServer.concurrentOp(clt, ser)
+	//})
 	fixedReadBtn := widget.NewButton("Fixed Read", func() {
 		go localServer.fixedRead(clt, ser)
 	})
@@ -238,7 +255,7 @@ func runGUI(localServer *cltServer) {
 		writeValuesEntry,
 		connectBtn,
 		performTransBtn,
-		concurrentOpBtn,
+		//concurrentOpBtn,
 		fixedReadBtn,
 		logScroll,
 	)
@@ -276,8 +293,9 @@ func main() {
 			log.Fatalf("failed to serve: %v", err)
 		}
 	}
-	runGUI(localServer)
 	go f()
+	runGUI(localServer)
+
 	// calling part
 	//select {}
 	//localServer.concurrentOp(clt, ser)
