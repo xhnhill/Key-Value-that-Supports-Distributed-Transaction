@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	addr = flag.String("addr", "localhost:51082"+
+	addr = flag.String("addr", "localhost:52082"+
 		"", "the address of client Node")
 
 	//TODO replace this place and use round robin to select server later
@@ -41,7 +41,6 @@ type DbClient struct {
 // TODO get transaction from command input
 
 func generateRead(keys []string) []*pb.ReadOp {
-	//var reads []*pb.ReadOp
 	reads := make([]*pb.ReadOp, 0, 3)
 	for i := 0; i < len(keys); i++ {
 		reads = append(reads, &pb.ReadOp{Key: keys[i]})
@@ -49,7 +48,6 @@ func generateRead(keys []string) []*pb.ReadOp {
 	return reads
 }
 func generateWrite(keys []string, vals []string) []*pb.WriteOp {
-	//var writes []*pb.WriteOp
 	writes := make([]*pb.WriteOp, 0, 6)
 	for i := 0; i < len(keys); i++ {
 		writes = append(writes, &pb.WriteOp{
@@ -65,7 +63,6 @@ func genUUID() string {
 
 }
 func generateTrans(rKeys []string, wKeys []string, wVals []string, clt *pb.NodeInfo) *pb.Trans {
-	log.Println("generateTrans called")
 	reads := generateRead(rKeys)
 	writes := generateWrite(wKeys, wVals)
 	log.Println("generateTrans called with reads", reads)
@@ -120,14 +117,11 @@ func sendMsg(data []byte, tar pb.CoordinateClient) {
 		log.Fatal("Sending failed, %v", err)
 		return
 	}
-	//log.Printf("Received the resp")
 	return
 }
 
 // Just a helper function which helps to test
 func getServerClient(serAddr string) (pb.CoordinateClient, error) {
-	log.Println("getServerClient called with address:", serAddr)
-
 	// Create a context with a 1-second timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -154,17 +148,14 @@ func convertRes2Str(res []*pb.SingleResult) string {
 	return str
 }
 func (s *cltServer) blockRead(trans *pb.Trans, clt pb.CoordinateClient) {
-	log.Println("blockRead called")
 	rawMsg, _ := proto.Marshal(trans)
 	sendMsg(rawMsg, clt)
-	log.Println("Before Lock")
 	s.mu.Lock()
 	waitCh := make(chan []*pb.SingleResult, 1)
 	s.transMap[trans.CId] = waitCh
 	s.mu.Unlock()
-	log.Println("After Lock")
 	res := <-waitCh
-	log.Println(convertRes2Str(res))
+	log.Println("Transaction return results:", convertRes2Str(res))
 }
 func (s *cltServer) SendReq(ctx context.Context, in *pb.Message) (*emptypb.Empty, error) {
 	finalRes := &pb.FinalRes{}
@@ -244,24 +235,15 @@ func runGUI(localServer *cltServer) {
 		log.Println("Connected to server:", *server)
 	})
 	performTransBtn := widget.NewButton("Perform Transaction", func() {
-		//readKeys := make([]string, 0, 1)
 		readKeys := filterEmptyStrings(strings.Split(readKeysEntry.Text, ","))
 		writeKeys := filterEmptyStrings(strings.Split(writeKeysEntry.Text, ","))
 		writeValues := filterEmptyStrings(strings.Split(writeValuesEntry.Text, ","))
-
-		//if readKeysEntry.Text == "" {
-		//	log.Println("Please enter both server IP and port before connecting.")
-		//	return
-		//}
-
 		go performTransaction(clt, ser, localServer, readKeys, writeKeys, writeValues)
 	})
-	//concurrentOpBtn := widget.NewButton("Concurrent Operation", func() {
-	//	go localServer.concurrentOp(clt, ser)
+
+	//fixedReadBtn := widget.NewButton("Fixed Read", func() {
+	//	go localServer.fixedRead(clt, ser)
 	//})
-	fixedReadBtn := widget.NewButton("Fixed Read", func() {
-		go localServer.fixedRead(clt, ser)
-	})
 
 	// Add input fields and buttons to the container
 	form := container.NewVBox(
@@ -273,7 +255,7 @@ func runGUI(localServer *cltServer) {
 		connectBtn,
 		performTransBtn,
 		//concurrentOpBtn,
-		fixedReadBtn,
+		//fixedReadBtn,
 		logScroll,
 	)
 
@@ -312,9 +294,4 @@ func main() {
 	}
 	go f()
 	runGUI(localServer)
-
-	// calling part
-	//select {}
-	//localServer.concurrentOp(clt, ser)
-	//localServer.fixedRead(clt, ser)
 }
