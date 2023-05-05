@@ -1342,7 +1342,7 @@ func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Mes
 			now := time.Now()
 			for st.pq.Len() > 0 {
 				fir := st.pq[0]
-				if now.Before(fir.T0.TimeStamp.AsTime().Add(1 * time.Second)) {
+				if now.Before(fir.T0.TimeStamp.AsTime().Add(2 * time.Second)) {
 					st.executeReq(heap.Pop(&st.pq).(*pb.Message))
 				}
 			}
