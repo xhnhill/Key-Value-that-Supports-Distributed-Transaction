@@ -15,22 +15,29 @@ import (
 	"time"
 )
 
+// Author: Haining Xie
+
+// The logic of statemachine, the core function is executeReq()
+//It shows how statemmachine deals with each incoming messages
+// The statemachine allows the message arrive out of order
+
 const PEER_TIMEOUT int = 60 // unit is second
 const ERROR string = "[ERROR]: "
 const FQ_TIMEOUT time.Duration = 5 * time.Second
 const UNFINISHED = "UNFINISHED"
 
-// TODO config struct
+// config struct, which contains the quorum size of fast path and slow path
 type Config struct {
 	epoch     int // config generation
 	fastSize  int //fast quorum
 	classSize int // classical quorum
 }
 
+// The Transaction, which holds the metadata of transactions
 type Transaction struct {
 	config    Config
-	in_trans  *pb.Trans
-	keys      []string //Record all the keys used by the transactions
+	in_trans  *pb.Trans // The core transaction, which contains the core info of transaction
+	keys      []string  //Record all the keys used by the transactions
 	ifTimeout bool
 	// Only meaningful when ifTimeout == true, which labels the specific time to timeout
 	endTime   *timestamppb.Timestamp
@@ -40,7 +47,7 @@ type Transaction struct {
 	couldFast bool               // true when still considering the fast path, false means use slow path
 	failsNum  int                //Number of failed peers
 	collectT  *pb.TransTimestamp // Used in the PreAccept which collects max t from PreAcceptOK
-	//TODO optimize in the final version, use former deps instead
+
 	acceptDeps    map[string]bool    //Used to collect deps in collecting AcceptOk stage
 	acceptVotes   int                // Count votes in AcceptOk stage
 	readRes       map[int32][]string //store read result according to shards
@@ -57,7 +64,7 @@ var tranStatusToString = map[pb.TranStatus]string{
 	pb.TranStatus_Applied:     "TranStatus_Applied",
 }
 
-// Extract the keys and save it as string in the keys field of Transaction
+// Extract the used keys of transaction and save it as string in the keys field of Transaction
 func (tr *Transaction) updateKeys() {
 	keySet := genKeySet(tr.in_trans)
 	var keys []string
@@ -67,22 +74,17 @@ func (tr *Transaction) updateKeys() {
 	tr.keys = keys
 }
 
-type TimeoutTask struct {
-	fc    func(Transaction)
-	trans Transaction
-}
-
 // Used by failure detector to monitor Peer status
 // Should be init when the statemachine is created
 // Will be modified by
 // 1. tick msg: add timeout (main statemachine go routine)
 // 2. heartResponse: clear timeout (The go routine performs the synchronous rpc call)
-// TODO init this struct in statemachine
 type PeerStatus struct {
 	mu    sync.Mutex
 	peers map[int32]*Peer
 }
 
+// Recorde peer's status
 type Peer struct {
 	timeout int   // Should be init with PEER_TIMEOUT
 	status  bool  // True means alive
@@ -120,18 +122,15 @@ func (st *StateMachine) modifyAndCheck(incr int, nodeId int32) {
 
 }
 
-// TODO examine the parts that need synchronization
+// Statemachine, which manages the whole status
 type StateMachine struct {
 	id      int32                   // Actual node will map the Id to actual address
 	m_trans map[string]*Transaction // Managed transactions, because this state machine is its coordinator
-	//TODO if need optimization of its data structure
-	//TODO maybe a heap here?
+
 	w_trans map[string]*Transaction // witnessed transactions, m_trans is a subset of this slice
-	//a map here, which key is the transaction id, value should be the transaction
-	//Corresponding event will come here to uodate status
 
 	//Ballot number
-	ballot int32
+	ballot int32 //Used in recovery, seen in paper
 	//TODO shards
 	//shards contain the sharding info of the cluster
 	shards []*pb.ShardInfo
@@ -145,9 +144,10 @@ type StateMachine struct {
 	outCh chan *pb.Message
 	//Peer status, mainly about the indication of connection
 	peerStatus *PeerStatus
-	// T recorded for witnessed transactions
+	// T :recorded for witnessed transactions, concepts from Accord paper
 	T map[string]*pb.TransTimestamp
 	// conflicting keys, which register key - transaction relationship
+	// Used for detecting conflicted transactions
 	conflictMap map[string][]string
 	//current tick number, when greater than 10, send heartbeat msg
 	tickNum int
@@ -156,18 +156,11 @@ type StateMachine struct {
 	//DB's name
 	dbName string
 	//bufferedInCh chan *pb.Message // store the
-	pq PriorityQueue //The heap which is used as reorder buffer
-	ct int32         // counter used for t0
-}
-
-// Get keys of the transaction
-// TODO output set
-func (trans *Transaction) getKeys() {
-
+	pq PriorityQueue //The heap which is used as reorder buffer, the concept is from Accord paper
+	ct int32         // counter used for t0, t0 is from Accord paper
 }
 
 // Generate conflict trans
-// Judge the return
 // Use the inverted index to find the conflicts
 func (st *StateMachine) getConflicts(trans *Transaction) []string {
 	keys := trans.keys
@@ -203,16 +196,7 @@ func (st *StateMachine) filterConflictsAccept(clfs []string, timestamp *pb.Trans
 
 }
 
-//TODO a function to union the deps
-
-//TODO Read function, read actual values from the data base
-
-//TODO Write function, write actual values from the database
-
-//TODO Detect failure, send heartbeat
-
-//TODO basic function, Compare timestamp of the transaction
-
+// Timestamp's layout: (actual_time,seqId,pId), referred from Accord Paper
 func (st *StateMachine) generateTimestamp() *pb.TransTimestamp {
 	timeNow := time.Now()
 	st.ct++
@@ -226,6 +210,8 @@ func (st *StateMachine) generateTimestamp() *pb.TransTimestamp {
 	}
 	return t0
 }
+
+// Convert timestamp to Id, the identifier of transaction
 func (st *StateMachine) generateTransId(t *pb.TransTimestamp) *string {
 	data, _ := proto.Marshal(t)
 	hash := sha256.Sum256(data)
@@ -233,24 +219,23 @@ func (st *StateMachine) generateTransId(t *pb.TransTimestamp) *string {
 	return &hashString
 }
 
-// TODO process Transaction submission from client
-// TODO any persistent needs during processing   thinking after the first draft
+// process Transaction submission from client
 func (st *StateMachine) recvTrans(req *pb.Message) {
 
 	//UnMarshall trans
 	trans := &pb.Trans{}
 	proto.Unmarshal(req.Data, trans)
-	// Preprocess transactions TODO check if correct here
+	// Preprocess transactions
 	trans.St = pb.TranStatus_PreAccepted
-	// TODO calculate Electorates
+	// Calculate Electorates
 	e := st.getRelatedReplicas(trans)
 	//update the related replicas in the innerTrans
 	trans.RelatedReplicas = e
-	//TODO Optimize the configuration process
+
 	//Set electorates size of the transaction
 	trans.EleSize = int32(len(e))
 
-	//Will set to,Id and register in the sendPreAccept function
+	//Will set to,Id fields and register in the sendPreAccept function
 	preAccepts := st.sendPreAccept(e, trans)
 	st.sendMsgs(preAccepts)
 	//Begin to set timeout for fast quorum
@@ -269,6 +254,8 @@ func (st *StateMachine) sendMsgs(msgs []*pb.Message) {
 		st.outCh <- msgs[i]
 	}
 }
+
+// Generate keySet of transaction
 func genKeySet(trans *pb.Trans) map[string]bool {
 	keySet := make(map[string]bool)
 	for i := 0; i < len(trans.Reads); i++ {
@@ -291,6 +278,8 @@ func compareByte(b1 []byte, b2 []byte) int {
 	}
 	return 0
 }
+
+// Check if key belongs the byte range
 func ifKeyInRange(key string, st []byte, end []byte) bool {
 	hashKey := sha256.Sum256([]byte(key))
 	hashed := make([]byte, 0, 32)
@@ -299,6 +288,8 @@ func ifKeyInRange(key string, st []byte, end []byte) bool {
 	}
 	return compareByte(hashed, st) >= 0 && compareByte(hashed, end) < 0
 }
+
+// Check if key belongs to this shard
 func (st *StateMachine) ifInShards(keySet map[string]bool, info *pb.ShardInfo) bool {
 	for key, _ := range keySet {
 		if ifKeyInRange(key, info.Start, info.End) {
@@ -309,7 +300,6 @@ func (st *StateMachine) ifInShards(keySet map[string]bool, info *pb.ShardInfo) b
 }
 
 // Basic version finding the electorates in preAccept
-// TODO may need modify and optimize
 func (st *StateMachine) getRelatedReplicas(trans *pb.Trans) []int32 {
 	var tars []int32
 	keySet := genKeySet(trans)
@@ -331,9 +321,9 @@ const (
 	Witnessed
 )
 
-// TODO register transaction
+// Register transaction in statemachine
 func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
-	//tr := &Transaction{in_trans: trans}
+
 	//update config
 
 	tr := &Transaction{
@@ -373,8 +363,6 @@ func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
 	}
 }
 
-// TODO if need to update the transaction info
-
 // Send PreAccept Request
 func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Message {
 	// The transaction received doesn't have t0 and id
@@ -407,14 +395,14 @@ func (st *StateMachine) sendPreAccept(tars []int32, trans *pb.Trans) []*pb.Messa
 	return msgs
 }
 
-// TODO process tick message
+// Process tick message
 func (st *StateMachine) processTick(msg *pb.Message) {
 	//UnMarshal the msg
 
 	tickMsg := &pb.TickMsg{}
 	proto.Unmarshal(msg.Data, tickMsg)
-	//TODO check and deal with timeout transactions
-	//TODO Timeout for fast quorum
+	//check and deal with timeout transactions
+	//Timeout for fast quorum
 	mTrans := st.m_trans
 	for k, _ := range mTrans {
 		tar := mTrans[k]
@@ -426,27 +414,21 @@ func (st *StateMachine) processTick(msg *pb.Message) {
 				log.Printf("Fast quorum timeout on node %d", st.id)
 				//Perform timeout logic
 				tar.couldFast = false
-				//TODO force to check the slow path logic
 				tar.endTime = nil
 				st.checkAndProcessSlowPath(tar)
 			}
 
 		}
 	}
-	//TODO  timeout for recovery
-
-	//TODO purge managed and witnessed transactions of statemachine
-
-	// TODO Monitor the timeout statemachine,
-	// TODO here each node should have an accumulated timeout value
-	// TODO think if that value should be in this layer
-	// TODO Or both layer need, and they mean different things
+	//Update timeout attributes of transaction
 	st.modifyAndCheck(-1, -1)
 
-	//TODO Send heart beats, which acts as a weak failure detector
+	//Send heart beats, which acts as a weak failure detector
 	st.tickHeartbeat()
 
 }
+
+// Send heartbeat
 func (st *StateMachine) tickHeartbeat() {
 	st.peerStatus.mu.Lock()
 	defer st.peerStatus.mu.Unlock()
@@ -469,14 +451,14 @@ func (st *StateMachine) tickHeartbeat() {
 	st.sendMsgs(msgs)
 }
 
-// TODO write unit test for this function
+// check timestamp equality
 func equals(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
 	tp1 := t1.TimeStamp.AsTime()
 	tp2 := t2.TimeStamp.AsTime()
 	return tp1.Equal(tp2) && t1.Seq == t2.Seq && t1.Id == t2.Id
 }
 
-// true means greater
+// compare timestamp, true means greater
 func CompareTimestamp(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
 	tp1 := t1.TimeStamp.AsTime()
 	tp2 := t2.TimeStamp.AsTime()
@@ -490,6 +472,7 @@ func CompareTimestamp(t1 *pb.TransTimestamp, t2 *pb.TransTimestamp) bool {
 		return tp1.After(tp2)
 	}
 }
+
 func copyTransTimestamp(timestamp *pb.TransTimestamp) *pb.TransTimestamp {
 	return &pb.TransTimestamp{
 		TimeStamp: timestamp.TimeStamp,
@@ -497,6 +480,8 @@ func copyTransTimestamp(timestamp *pb.TransTimestamp) *pb.TransTimestamp {
 		Id:        timestamp.Id,
 	}
 }
+
+// Register keys in the conflict maps
 func (st *StateMachine) registerClfs(curTrans *Transaction) {
 	for i := 0; i < len(curTrans.keys); i++ {
 		val, ok := st.conflictMap[curTrans.keys[i]]
@@ -508,7 +493,7 @@ func (st *StateMachine) registerClfs(curTrans *Transaction) {
 	}
 }
 
-// TODO process the PreAccept Request
+// Process the PreAccept Request
 func (st *StateMachine) processPreAccept(req *pb.Message) {
 	var innerTrans *pb.Trans
 	preAccept := &pb.PreAcceptReq{}
@@ -534,8 +519,7 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	//Register conflicts
 	st.registerClfs(trans)
 	// Update specific config for this Trans
-	//TODO optimize this configuration process
-	//TODO May move to trans submission part in case of recv late from self
+
 	trans.couldFast = true
 	eSize := innerTrans.EleSize
 	trans.config.fastSize = int(3*eSize/4) + 1
@@ -591,6 +575,8 @@ func (st *StateMachine) genDepsPreAccept(cfl []string, t0 *pb.TransTimestamp) *p
 	}
 	return &pb.Deps{Items: deps}
 }
+
+// Merge deps
 func mergeDeps(d1 []*pb.DepsItem, d2 []*pb.DepsItem) []*pb.DepsItem {
 	set := make(map[string]bool)
 	res := make([]*pb.DepsItem, 0, 5)
@@ -630,6 +616,8 @@ func (st *StateMachine) updateDepsAcceptOk(cfl []*pb.DepsItem, trans *Transactio
 	}
 	trans.in_trans.Deps.Items = mergeDeps(trans.in_trans.Deps.Items, cfl)
 }
+
+// Flatten deps set to array
 func (st *StateMachine) convDepsSet(depsSet map[string]bool) []string {
 	var deps []string
 	for k, _ := range depsSet {
@@ -638,6 +626,7 @@ func (st *StateMachine) convDepsSet(depsSet map[string]bool) []string {
 	return deps
 }
 
+// Generate Deps according to transId
 func (st *StateMachine) genDepsWithTransId(curTrans *Transaction, ids []string) []*pb.DepsItem {
 	deps := make([]*pb.DepsItem, 0, 3)
 	for i := 0; i < len(ids); i++ {
@@ -650,8 +639,7 @@ func (st *StateMachine) genDepsWithTransId(curTrans *Transaction, ids []string) 
 	return deps
 }
 
-// Because timeout, msgs may duplicate
-// Receiver should be able to filter
+// Check if the condition for slow path is satisfied
 func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 	// Check if is the correct stage
 	if curTrans.in_trans.St != pb.TranStatus_PreAccepted &&
@@ -681,16 +669,15 @@ func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 		}
 		st.sendMsgs(msgs)
 
-		//TODO clear votes, because votes will be used in AcceptOk stage
 	}
 }
 
-// TODO process PreAcceptOk
+// Process PreAcceptOk
 func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	var preAcceptOk *pb.PreAcceptResp
 	preAcceptOk = &pb.PreAcceptResp{}
 	proto.Unmarshal(req.Data, preAcceptOk)
-	//TODO think about what if this node doesn't see this trans
+
 	curTrans := st.m_trans[preAcceptOk.TransId]
 	if !(curTrans.in_trans.St == pb.TranStatus_New ||
 		curTrans.in_trans.St == pb.TranStatus_PreAccepted) {
@@ -704,9 +691,8 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	if CompareTimestamp(preAcceptOk.T, curTrans.collectT) {
 		curTrans.collectT = copyTransTimestamp(preAcceptOk.T)
 	}
-	//TODO check if must slow path now
-	//TODO check if fast quorum is enough
-	//TODO slow path status
+	//check if must slow path now
+	//check if fast quorum is enough
 	if curTrans.couldFast {
 		//update fvotes
 		if equals(preAcceptOk.T, curTrans.in_trans.T0) {
@@ -734,7 +720,7 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 				})
 			}
 			st.sendMsgs(msgs)
-			//TODO perform execution logic
+			//Perform execution logic accordding to Accord paper
 			st.sendReads(curTrans, deps)
 
 		}
@@ -746,7 +732,7 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 
 }
 
-// TODO Process the Accept Message
+// Process the Accept Message
 func (st *StateMachine) processAccept(req *pb.Message) {
 
 	accept := &pb.AcceptReq{}
@@ -791,6 +777,8 @@ func (st *StateMachine) processAccept(req *pb.Message) {
 	st.sendMsgs(msgs)
 
 }
+
+// Check if collect quorum of acceptOk
 func (st *StateMachine) checkAcceptOkVotes(curTrans *Transaction) {
 	if curTrans.in_trans.St != pb.TranStatus_Accepted {
 		//TODO log?
@@ -825,7 +813,7 @@ func (st *StateMachine) checkAcceptOkVotes(curTrans *Transaction) {
 	}
 }
 
-// TODO Process AcceptOk message
+// Process AcceptOk message
 func (st *StateMachine) processAcceptOk(req *pb.Message) {
 	acceptOk := &pb.AcceptResp{}
 	proto.Unmarshal(req.Data, acceptOk)
@@ -834,6 +822,7 @@ func (st *StateMachine) processAcceptOk(req *pb.Message) {
 	st.checkAcceptOkVotes(curTrans)
 }
 
+// Deal with commit message
 func (st *StateMachine) commitMessage(req *pb.Message) {
 	commitMsg := &pb.CommitReq{}
 	proto.Unmarshal(req.Data, commitMsg)
@@ -859,9 +848,7 @@ func (st *StateMachine) commitMessage(req *pb.Message) {
 	st.triggerCheckOnAll()
 }
 
-// TODO Send read requests
-// TODO optimize the nearby configuration, because may need to deal
-// with sudden broken connect
+// Send read requests
 func (st *StateMachine) sendReads(curTrans *Transaction, deps *pb.Deps) {
 	// Save deps to innerTrans, because it is decided yet
 	curTrans.in_trans.Deps = deps
@@ -884,6 +871,8 @@ func (st *StateMachine) sendReads(curTrans *Transaction, deps *pb.Deps) {
 	st.sendMsgs(msgs)
 
 }
+
+// Only get read keys of transactions
 func (st *StateMachine) getReadKeys(trans *Transaction) []string {
 	reads := make([]string, 0, 3)
 	readOps := trans.in_trans.Reads
@@ -906,6 +895,8 @@ func (st *StateMachine) filterReadKey(trans *Transaction) []string {
 	}
 	return fKeys
 }
+
+// Check if two transaction share the same shard
 func shareSameShard(tars []int32, cShardId int32) bool {
 	for i := 0; i < len(tars); i++ {
 		if tars[i] == cShardId {
@@ -914,6 +905,8 @@ func shareSameShard(tars []int32, cShardId int32) bool {
 	}
 	return false
 }
+
+// Check if read condition is satisfied
 func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 	//Only check trans which sets the ifWait attribute
 	if !curTrans.ifWait {
@@ -946,7 +939,7 @@ func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 
 		}
 	}
-	//TODO check Applied await
+	//Check Applied await, seen in Accord paper
 
 	fKeys := st.filterReadKey(curTrans)
 
@@ -986,7 +979,7 @@ func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 	st.sendMsgs(msgs)
 }
 
-// TODO perform read operations, the execution logic
+// Perform read operations, the execution logic
 // Current version needs to filter out the deps which is not on this shard
 // Because the node and shard is one-to-one relationship
 func (st *StateMachine) processRead(req *pb.Message) {
@@ -1012,12 +1005,7 @@ func (st *StateMachine) processRead(req *pb.Message) {
 
 }
 
-// TODO trigger the waiting trans to examine execution condition
-// Trans may wait during processing Read
-func (st *StateMachine) transTrigger() {
-
-}
-
+// Get replicas (nodes) of the specific shard
 func (st *StateMachine) getReplicasOfShard(shardId int32) []int32 {
 	shards := st.shards
 	tars := make([]int32, 0, 3)
@@ -1030,10 +1018,9 @@ func (st *StateMachine) getReplicasOfShard(shardId int32) []int32 {
 	return tars
 }
 
-// TODO process readOk
+// Process readOk
 func (st *StateMachine) processReadOk(req *pb.Message) {
-	//TODO more complex execute operations should leave to further development
-	//TODO send results to clients
+
 	readOk := &pb.ReadResp{}
 	proto.Unmarshal(req.Data, readOk)
 	curTrans := st.m_trans[readOk.TransId]
@@ -1065,12 +1052,12 @@ func (st *StateMachine) processReadOk(req *pb.Message) {
 		st.sendMsgs(msgs)
 
 	}
-	//Check if all data is collected
-	//TODO optimize the return logic to clients
+	//Check if all data is collected, from different shards
+	//and return results to clients
 	if len(curTrans.collectShards) == len(curTrans.in_trans.RelatedShards) {
 		//Label on the managed node, the status as applied
 		curTrans.in_trans.St = pb.TranStatus_Applied
-		//TODO return results to clients
+		//Return results to clients
 		finalRes := &pb.FinalRes{
 			CId: curTrans.in_trans.CId,
 			Res: readOk.Res,
@@ -1088,6 +1075,8 @@ func (st *StateMachine) processReadOk(req *pb.Message) {
 
 	}
 }
+
+// Filter out the unrelated writes
 func (st *StateMachine) filterWrite(curTrans *Transaction) []*pb.WriteOp {
 	writes := curTrans.in_trans.Writes
 	curShard := st.curShard
@@ -1099,6 +1088,8 @@ func (st *StateMachine) filterWrite(curTrans *Transaction) []*pb.WriteOp {
 	}
 	return fWrites
 }
+
+// Write writes to db
 func (st *StateMachine) writeRes(writes []*pb.WriteOp) error {
 	db := st.db
 	err := db.Update(func(txn *badger.Txn) error {
@@ -1112,6 +1103,8 @@ func (st *StateMachine) writeRes(writes []*pb.WriteOp) error {
 	})
 	return err
 }
+
+// Convert deps to string, for debug and log
 func depsToString(items []*pb.DepsItem) string {
 	s := "Deps is "
 	for i := 0; i < len(items); i++ {
@@ -1119,9 +1112,11 @@ func depsToString(items []*pb.DepsItem) string {
 	}
 	return s
 }
+
+// Check is Apply condition is satisfied
 func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 	//Check if await condition satisfied
-	//TODO check commit await
+	//Check commit await
 	if !curTrans.ifWait {
 		return
 	}
@@ -1172,8 +1167,8 @@ func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 
 }
 
-// TODO process apply message
-// TODO applied transaction will trigger other transactions
+// Process apply message
+// Applied transaction will trigger other transactions
 func (st *StateMachine) processApply(req *pb.Message) {
 	applyMsg := &pb.ApplyReq{}
 	proto.Unmarshal(req.Data, applyMsg)
@@ -1197,6 +1192,8 @@ func (st *StateMachine) processApply(req *pb.Message) {
 	st.checkApplyCondition(curTrans)
 
 }
+
+// Trigger to check if other transactions could be processes
 func (st *StateMachine) triggerCheckOnAll() {
 	transAll := st.w_trans
 	for k, _ := range transAll {
@@ -1214,6 +1211,8 @@ func (st *StateMachine) recvHeartbeatResponse(nodeId int32) {
 	//TODO update the node status monitored by statemachine
 	st.modifyAndCheck(PEER_TIMEOUT, nodeId)
 }
+
+// Execute incoming messages, which changes the status of statemachine
 func (st *StateMachine) executeReq(req *pb.Message) {
 	switch req.Type {
 	case pb.MsgType_PreAccept:
@@ -1239,7 +1238,7 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 		st.processReadOk(req)
 	case pb.MsgType_Apply:
 		log.Printf("Receive Apply Msg from %d", req.From)
-		st.storeStatemachine()
+
 		st.processApply(req)
 	case pb.MsgType_Recover:
 		log.Printf("Receive req")
@@ -1252,6 +1251,7 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 	}
 }
 
+// Store the statemachine
 func (st *StateMachine) storeStatemachine() {
 	// create a buffer to encode the struct
 	buf := new(bytes.Buffer)
@@ -1269,6 +1269,8 @@ func (st *StateMachine) storeStatemachine() {
 		panic(err)
 	}
 }
+
+// Main loop of stateMachine
 func (st *StateMachine) mainLoop(inCh chan *pb.Message, outCh chan *pb.Message) {
 	for {
 		val, ok := <-inCh

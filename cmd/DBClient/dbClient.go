@@ -2,8 +2,11 @@ package main
 
 import (
 	pb "Distributed_Key_Value_Store/cmd/Primitive"
-	"context"
 	"flag"
+)
+
+import (
+	"context"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -16,11 +19,12 @@ import (
 	"time"
 )
 
+// Author: Haining Xie
+// Used to test massive concurrent operations on cluster
 var (
 	addr = flag.String("addr", "localhost:50072"+
 		"", "the address of client Node")
 
-	//TODO replace this place and use round robin to select server later
 	server = flag.String("ser", "localhost:50032", "the address of connected server")
 )
 
@@ -31,8 +35,6 @@ const (
 type DbClient struct {
 	nodeinfo pb.NodeInfo
 }
-
-// TODO get transaction from command input
 
 func generateRead(keys []string) []*pb.ReadOp {
 	reads := make([]*pb.ReadOp, 0, 3)
@@ -92,9 +94,6 @@ func generateFixedTrans(clt *pb.NodeInfo) *pb.Trans {
 	return generateTrans(rKeys, wKeys, wVals, clt)
 }
 
-// TODO considering receiving the results, Or we need to wait on another channel
-// TODO because maybe not the same node response
-// TODO discuss
 func sendMsg(data []byte, tar pb.CoordinateClient) {
 	msg := pb.Message{
 		Type: pb.MsgType_SubmitTrans,
@@ -102,12 +101,11 @@ func sendMsg(data []byte, tar pb.CoordinateClient) {
 		From: 1000,
 		To:   0,
 	}
-	//TODO if we could reuse the context?
-	// TODO when should we use the cancel? The second return from the following code!!
+
 	ctx, _ := context.WithTimeout(context.Background(), TIMEOUT*time.Second)
 	_, err := tar.SendReq(ctx, &msg)
 	if err != nil {
-		// TODO we may need extra info??
+
 		log.Fatal("Sending failed, %v", err)
 		return
 	}
@@ -175,7 +173,6 @@ func (localServer *cltServer) concurrentOp(clt *DbClient, ser pb.CoordinateClien
 	time.Sleep(300 * time.Second)
 }
 
-// TODO optimize the client to be thread safe
 func main() {
 	flag.Parse()
 	//Start receiving server

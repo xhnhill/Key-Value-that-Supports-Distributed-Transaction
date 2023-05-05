@@ -15,6 +15,8 @@ var (
 	pathPrefix = flag.String("pathPrefix", "tmp/", "Prefix of the db")
 )
 
+// Author: Haining Xie
+// Monitor the status of local db
 func printResMap(resMap map[int][]byte) {
 	for k, v := range resMap {
 		log.Printf("From db%d , get val as %s", k, v)

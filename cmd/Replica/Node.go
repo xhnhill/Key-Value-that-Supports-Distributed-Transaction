@@ -25,13 +25,15 @@ import (
 	"time"
 )
 
+// Author : Haining Xie
 var (
-	path       = flag.String("path", "config", "the path to config file")
+	path       = flag.String("path", "config", "The path to cluster config file")
 	selfConfig = flag.String("self", "self", "the path to self configuration file")
 	shardsNum  = flag.Int("shards", 2, "Sharding num")
 	mode       = flag.Bool("mode", false, "True indicates in the debug mode")
 )
 
+// Convert Message Type to string
 var msgTypeToString = map[pb.MsgType]string{
 	pb.MsgType_PreAccept:   "PreAccept",
 	pb.MsgType_Accept:      "Accept",
@@ -50,35 +52,37 @@ var msgTypeToString = map[pb.MsgType]string{
 	pb.MsgType_HeartBeat:   "HeartBeat",
 }
 
+// Node wraps the gRPC client and its metadata
 type Node struct {
 	nodeId int
 	addr   string
 	client pb.CoordinateClient
 }
+
+// The server of this replica, which holds the statemachine and in/out message channels
 type Server struct {
 	node  *Node
-	inCh  chan *pb.Message
-	outCh chan *pb.Message
+	inCh  chan *pb.Message //Incoming messages
+	outCh chan *pb.Message // Messages that need sending
 
 	peers map[int]*Node // Connections to peers
 	//clients are indexed by addrs
-	clients map[string]*Node // Connected clients TODO maybe lazy deletion about non connected one?
-	pb.UnimplementedCoordinateServer
-	stateMachine *StateMachine
+	clients                          map[string]*Node // Connected clients
+	pb.UnimplementedCoordinateServer                  //gRPC server
+	stateMachine                     *StateMachine    // StateMachine held by this server, which controls the logic
 }
 
-// Easy function ,just put received raw msg into input channel
-// TODO how will the context object be used?
+// Just put received raw msg into input channel
 func (s *Server) SendReq(ctx context.Context, in *pb.Message) (*emptypb.Empty, error) {
 	s.inCh <- in
 	return &emptypb.Empty{}, nil
 
 }
 
-func connectCluster() {
-
-}
-
+// Read the configuration of the node, the node's ip and port
+// The config file has two line,
+// The first line if node index, which is a int
+// The second line is ip:port
 func readNodeConfig() (int, string, int, error) {
 	nodeFile, err := os.Open(*selfConfig)
 	if err != nil {
@@ -104,6 +108,13 @@ func readNodeConfig() (int, string, int, error) {
 	}
 	return nodeId, ip, port, nil
 }
+
+// Read the configuration of cluster
+// The cluster configuration specifies the size of the cluster
+// Each line has takes the following format:
+// nodeId-ip:port
+// After reading the configuration, the cluster will be sharded by shardNum received from command line
+// Corresponding replicas will also be allocated
 func readClusterConfig() ([]Node, error) {
 	// The format of config file:
 	// repeated nodeId-Ip:port
@@ -136,6 +147,7 @@ func min(a, b int) int {
 	return b
 }
 
+// Extending the bytes to specific length, Used by hashing values
 func extendBytes(bytes []byte, n int) []byte {
 	diff := n - len(bytes)
 	if diff < 0 {
@@ -147,7 +159,9 @@ func extendBytes(bytes []byte, n int) []byte {
 	return bytes
 }
 
-// Allocate shards
+// Allocate shards, different node will be automatically allocated to one shard
+// Shard is responsible for a specific range of data
+// Here the range is evenly distributed
 func (ser *Server) generateShards(n int) {
 	// Generate array full of bytes, n indicates the array length
 	arr := make([]byte, n)
@@ -192,8 +206,10 @@ func (ser *Server) generateShards(n int) {
 
 }
 
+// Ticker function, tick every second
+// Which helps to timeout the fast path, heartbeat of node
 func (ser *Server) startTicker(inCh chan *pb.Message) *time.Ticker {
-	//TODO please modify back after debugging
+
 	ticker := time.NewTicker(1 * time.Second)
 
 	for {
@@ -217,7 +233,7 @@ func (ser *Server) startTicker(inCh chan *pb.Message) *time.Ticker {
 
 }
 
-// Create clients for peer nodes
+// Create clients for peer nodes, which are the basic connection points
 func createClients(nodes []Node) []Node {
 
 	for i := 0; i < len(nodes); i++ {
@@ -228,8 +244,6 @@ func createClients(nodes []Node) []Node {
 				time.Sleep(10 * time.Second)
 			} else {
 				nodes[i].client = pb.NewCoordinateClient(conn)
-				//TODO this step seems does not mean the other node is alive
-				//log.Printf("Node %d connect successful", nodes[i].nodeId)
 				break
 			}
 		}
@@ -237,6 +251,8 @@ func createClients(nodes []Node) []Node {
 	}
 	return nodes
 }
+
+// Register the peer nodes connection to the local server
 func (ser *Server) updatePeerClients(nodes []Node) {
 
 	for i := 0; i < len(nodes); i++ {
@@ -244,8 +260,7 @@ func (ser *Server) updatePeerClients(nodes []Node) {
 	}
 }
 
-// Add user client (in case to respond results)
-// TODO consider about try to connect to clients also in recovery if the original coordinator failed
+// Add and connect user client (in case to respond results)
 func (ser *Server) createAndConnUserClient(userInfo *pb.NodeInfo) {
 	conn, err := grpc.Dial(userInfo.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -261,6 +276,8 @@ func (ser *Server) createAndConnUserClient(userInfo *pb.NodeInfo) {
 	ser.clients[user.addr] = &user
 
 }
+
+// Send results to clients
 func (ser *Server) sendToClient(req *pb.Message) {
 	finalRes := &pb.FinalRes{}
 	proto.Unmarshal(req.Data, finalRes)
@@ -301,21 +318,18 @@ func (ser *Server) sendToClient(req *pb.Message) {
 
 // function which is responsible for send out gRPC request
 // Run in a single go routine, but will start lots of other goroutine
-// TODO check if it is thread safe to use ser.peers here
 func (ser *Server) performRPC() {
 	for {
+		// Retrieve the sending message
 		rpc, ok := <-ser.outCh
 		if !ok {
 			log.Printf("output channel closed on server %d", ser.node.nodeId)
 			return
-		} else {
-			//log.Printf("Received msg on outChannel on node%d", ser.node.nodeId)
 		}
 		tarNodeId := int(rpc.To)
 		//Avoid network for the msg sending to self
 		if rpc.From == ser.stateMachine.id && rpc.To == ser.stateMachine.id {
 			ser.inCh <- rpc
-			//log.Printf("Send %s from Node%d to Node%d", msgTypeToString[rpc.Type], rpc.To, rpc.To)
 			continue
 		}
 		//Send specific msg to clients
@@ -323,11 +337,11 @@ func (ser *Server) performRPC() {
 			ser.sendToClient(rpc)
 			continue
 		}
-		// TODO maybe we need read write lock here?
+		// Check if peer is registered
 		tarNode, exist := ser.peers[tarNodeId]
 		if exist {
-			// TODO maybe need to wrap the sending, in case sending fail
-			// TODO anything we need to add to context?
+			// Actual sending messages to peers or clients
+			// The sending process will be retried
 			f := func(node *Node, msg *pb.Message) {
 
 				//TODO error handling here
@@ -353,7 +367,6 @@ func (ser *Server) performRPC() {
 				} else {
 					// Perform heartbeat update here
 					if rpc.Type == pb.MsgType_HeartBeat {
-
 						ser.stateMachine.recvHeartbeatResponse(msg.To)
 					}
 				}
@@ -368,6 +381,7 @@ func (ser *Server) performRPC() {
 	}
 }
 
+// Init the stateMachine
 func (ser *Server) initStateMachine() {
 	ser.generateShards(32)
 	//attach in/out channels to statemachine
@@ -375,7 +389,7 @@ func (ser *Server) initStateMachine() {
 	ser.stateMachine.outCh = ser.outCh
 }
 
-// TODO close the connections
+// Main function of the replica
 func main() {
 	flag.Parse()
 	nodeId, ip, port, err := readNodeConfig()
@@ -393,12 +407,12 @@ func main() {
 	}
 	//create uderlying persistent layer
 	dbName := strconv.Itoa(cur.nodeId)
-	//TODO could use in memopry version during initial test
-	//db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
+
 	db, err := badger.Open(badger.DefaultOptions("tmp/" + dbName))
 	if err != nil {
 		log.Fatalf("failed to create db on node %d", cur.nodeId)
 	}
+	//Create and init local server
 	localServer := &Server{
 		node:    cur,
 		inCh:    make(chan *pb.Message, 100),
@@ -440,14 +454,14 @@ func main() {
 			log.Fatalf("failed to serve: %v", err)
 		}
 	}
+	// Serve the gRPC in another thread
 	go f()
 
 	// Start the timer here
 	if !*mode {
 		go localServer.startTicker(localServer.inCh)
 	}
-	//TODO May wait for 60s to let server startup
-	//time.Sleep(20 * time.Second)
+
 	nodes = createClients(nodes)
 	localServer.updatePeerClients(nodes)
 	// Init statemachine

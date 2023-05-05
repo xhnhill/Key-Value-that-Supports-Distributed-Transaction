@@ -14,5 +14,3 @@ $process3_command &
 $process4_command &
 $process5_command &
 $process6_command &
-
-
