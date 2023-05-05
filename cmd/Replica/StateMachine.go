@@ -18,6 +18,7 @@ import (
 const PEER_TIMEOUT int = 60 // unit is second
 const ERROR string = "[ERROR]: "
 const FQ_TIMEOUT time.Duration = 5 * time.Second
+const UNFINISHED = "UNFINISHED"
 
 // TODO config struct
 type Config struct {
@@ -281,7 +282,7 @@ func genKeySet(trans *pb.Trans) map[string]bool {
 
 // 1 means b1 greater than b2, 0 means equal, -1 means less
 func compareByte(b1 []byte, b2 []byte) int {
-	for i := 31; i >= 0; i-- {
+	for i := 0; i < 32; i++ {
 		if b1[i] > b2[i] {
 			return 1
 		} else if b1[i] < b2[i] {
@@ -1067,6 +1068,8 @@ func (st *StateMachine) processReadOk(req *pb.Message) {
 	//Check if all data is collected
 	//TODO optimize the return logic to clients
 	if len(curTrans.collectShards) == len(curTrans.in_trans.RelatedShards) {
+		//Label on the managed node, the status as applied
+		curTrans.in_trans.St = pb.TranStatus_Applied
 		//TODO return results to clients
 		finalRes := &pb.FinalRes{
 			CId: curTrans.in_trans.CId,
@@ -1318,6 +1321,14 @@ func (pq *PriorityQueue) Pop() interface{} {
 	*pq = old[0 : n-1]
 	return item
 }
+func (st *StateMachine) checkunAppliedTrans() {
+	for i, _ := range st.m_trans {
+		if st.m_trans[i].in_trans.St != pb.TranStatus_Applied {
+			log.Printf(UNFINISHED+"On node%d the trans %s, current st is %s", st.id, st.m_trans[i].in_trans.Id,
+				tranStatusToString[st.m_trans[i].in_trans.St])
+		}
+	}
+}
 
 // The reorder version that buffered the message
 func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Message) {
@@ -1333,6 +1344,8 @@ func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Mes
 					st.executeReq(heap.Pop(&st.pq).(*pb.Message))
 				}
 			}
+			//TODO This function is only used in debug
+			st.checkunAppliedTrans()
 		case val, ok := <-inCh:
 			if !ok {
 				log.Printf("The channel of the node has been closed, nodeId is %d", st.id)
