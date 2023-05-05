@@ -197,7 +197,7 @@ func main() {
 	// calling part
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
 	ser := getServerClient(*server)
-	//localServer.concurrentOp(clt, ser)
-	localServer.fixedRead(clt, ser)
+	localServer.concurrentOp(clt, ser)
+	//localServer.fixedRead(clt, ser)
 
 }
