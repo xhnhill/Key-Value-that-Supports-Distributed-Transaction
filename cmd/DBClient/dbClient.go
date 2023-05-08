@@ -88,8 +88,10 @@ func generateFixedTrans(clt *pb.NodeInfo) *pb.Trans {
 	var rKeys []string
 	wKeys := make([]string, 0, 1)
 	wVals := make([]string, 0, 1)
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 8; i++ {
 		rKeys = append(rKeys, "rk"+strconv.Itoa(i))
+		wKeys = append(wKeys, "rk"+strconv.Itoa(i))
+		wVals = append(wVals, "val "+strconv.Itoa(i))
 	}
 	return generateTrans(rKeys, wKeys, wVals, clt)
 }
@@ -196,7 +198,7 @@ func main() {
 	// calling part
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
 	ser := getServerClient(*server)
-	localServer.concurrentOp(clt, ser)
-	//localServer.fixedRead(clt, ser)
+	//localServer.concurrentOp(clt, ser)
+	localServer.fixedRead(clt, ser)
 
 }

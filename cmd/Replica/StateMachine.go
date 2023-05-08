@@ -48,12 +48,12 @@ type Transaction struct {
 	failsNum  int                //Number of failed peers
 	collectT  *pb.TransTimestamp // Used in the PreAccept which collects max t from PreAcceptOK
 
-	acceptDeps    map[string]bool    //Used to collect deps in collecting AcceptOk stage
-	acceptVotes   int                // Count votes in AcceptOk stage
-	readRes       map[int32][]string //store read result according to shards
-	collectShards map[int32]bool     // store the already collected shards reads, used in readOk phase
-	ifWait        bool               // labels if the transaction is in the waiting status, only used in await of (Read/Apply)
-	replyTo       int32              // the same with ifWait, used only in read/apply phase
+	acceptDeps    map[string]bool              //Used to collect deps in collecting AcceptOk stage
+	acceptVotes   int                          // Count votes in AcceptOk stage
+	readRes       map[int32][]*pb.SingleResult //store read result according to shards
+	collectShards map[int32]bool               // store the already collected shards reads, used in readOk phase
+	ifWait        bool                         // labels if the transaction is in the waiting status, only used in await of (Read/Apply)
+	replyTo       int32                        // the same with ifWait, used only in read/apply phase
 }
 
 var tranStatusToString = map[pb.TranStatus]string{
@@ -343,7 +343,7 @@ func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
 		collectT:      trans.T0,
 		acceptDeps:    make(map[string]bool),
 		acceptVotes:   0,
-		readRes:       make(map[int32][]string),
+		readRes:       make(map[int32][]*pb.SingleResult),
 		collectShards: make(map[int32]bool),
 	}
 	switch t {
@@ -1018,6 +1018,16 @@ func (st *StateMachine) getReplicasOfShard(shardId int32) []int32 {
 	return tars
 }
 
+// Merge read results
+func (tr *Transaction) mergeReadRes() []*pb.SingleResult {
+	res := make([]*pb.SingleResult, 0, 6)
+	for k, _ := range tr.readRes {
+		res = append(res, tr.readRes[k]...)
+	}
+	return res
+
+}
+
 // Process readOk
 func (st *StateMachine) processReadOk(req *pb.Message) {
 
@@ -1031,6 +1041,10 @@ func (st *StateMachine) processReadOk(req *pb.Message) {
 		return
 	} else {
 		curTrans.collectShards[fromShard] = true
+		//Update ReadRes, collect all read responses
+		partialReads := make([]*pb.SingleResult, 0, 6)
+		partialReads = append(partialReads, readOk.Res...)
+		curTrans.readRes[fromShard] = partialReads
 		// Send Apply request to replicas of these shards
 		tars := st.getReplicasOfShard(fromShard)
 		applyMsg := &pb.ApplyReq{
@@ -1060,7 +1074,7 @@ func (st *StateMachine) processReadOk(req *pb.Message) {
 		//Return results to clients
 		finalRes := &pb.FinalRes{
 			CId: curTrans.in_trans.CId,
-			Res: readOk.Res,
+			Res: curTrans.mergeReadRes(),
 			Tar: curTrans.in_trans.ClientInfo.Addr,
 		}
 		data, _ := proto.Marshal(finalRes)
