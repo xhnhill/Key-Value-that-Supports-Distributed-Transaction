@@ -1348,15 +1348,24 @@ func (st *StateMachine) checkunAppliedTrans() {
 
 // The reorder version that buffered the message
 func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Message) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	for {
 		select {
+		// This ticker is only used in this scope
 		case <-ticker.C:
 			//check heap first
 			now := time.Now()
 			for st.pq.Len() > 0 {
 				fir := st.pq[0]
-				if now.Before(fir.T0.TimeStamp.AsTime().Add(2 * time.Second)) {
+
+				minTime := now.Add(-1 * time.Second)
+				maxTime := now.Add(time.Second)
+				recTime := fir.T0.TimeStamp.AsTime()
+				if recTime.After(maxTime) {
+					break
+				} else if recTime.Before(minTime) {
+					log.Printf(ERROR + "Out of scope time in buffered array")
+				} else {
 					st.executeReq(heap.Pop(&st.pq).(*pb.Message))
 				}
 			}
