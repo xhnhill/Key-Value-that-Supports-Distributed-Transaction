@@ -352,12 +352,27 @@ func (st *StateMachine) registerTrans(t RegisterTransType, trans *pb.Trans) {
 		//the witnessed will be update at that stage
 		st.m_trans[trans.Id] = tr
 		st.w_trans[trans.Id] = tr
+		// Update the keys of the transaction, in case of finding conflicting trans
+		tr.updateKeys()
+		//Register conflicts
+		st.registerClfs(tr)
+		//update T
+		st.T[trans.Id] = trans.T0
 	case Witnessed:
 		_, ok := st.m_trans[trans.Id]
 		if ok {
 			st.w_trans[trans.Id] = st.m_trans[trans.Id]
 		} else {
 			st.w_trans[trans.Id] = tr
+			// Update the keys of the transaction, in case of finding conflicting trans
+			tr.updateKeys()
+			//Register conflicts
+			st.registerClfs(tr)
+			//try to update T
+			_, ok := st.T[trans.Id]
+			if !ok {
+				st.T[trans.Id] = trans.ExT
+			}
 		}
 
 	}
@@ -512,12 +527,13 @@ func (st *StateMachine) processPreAccept(req *pb.Message) {
 	st.registerTrans(Witnessed, innerTrans)
 	trans := st.w_trans[innerTrans.Id]
 	//Update the transaction
-	// Update the keys of the transaction, in case of finding conlicting transa
-	trans.updateKeys()
+	// Update the keys of the transaction, in case of finding conflicting trans
+	// TODO Moved to registerTrans
+	//trans.updateKeys()
 	//check conflicts of transactions
 	conflicts := st.getConflicts(trans)
-	//Register conflicts
-	st.registerClfs(trans)
+	//TODO Register conflicts Moved to registerTrans
+	//st.registerClfs(trans)
 	// Update specific config for this Trans
 
 	trans.couldFast = true
@@ -649,6 +665,8 @@ func (st *StateMachine) checkAndProcessSlowPath(curTrans *Transaction) {
 	if curTrans.votes >= curTrans.config.classSize {
 		//Update the final version of Execution time
 		curTrans.in_trans.ExT = copyTransTimestamp(curTrans.collectT)
+		//update T in statemachine
+		st.T[curTrans.in_trans.Id] = curTrans.in_trans.ExT
 		//update current trans status avoid further votes
 		curTrans.in_trans.St = pb.TranStatus_Accepted
 		accMsg := &pb.AcceptReq{
@@ -703,6 +721,8 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 			curTrans.in_trans.St = pb.TranStatus_Commited
 			//update curTrans's execution time
 			curTrans.in_trans.ExT = curTrans.in_trans.T0
+			//update T in statemachine
+			st.T[curTrans.in_trans.Id] = curTrans.in_trans.T0
 			deps := &pb.Deps{Items: curTrans.in_trans.Deps.Items}
 			commitMsg := &pb.CommitReq{
 				Trans: curTrans.in_trans,
