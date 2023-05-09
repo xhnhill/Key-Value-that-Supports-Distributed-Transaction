@@ -52,7 +52,8 @@ type Transaction struct {
 	acceptVotes   int                          // Count votes in AcceptOk stage
 	readRes       map[int32][]*pb.SingleResult //store read result according to shards
 	collectShards map[int32]bool               // store the already collected shards reads, used in readOk phase
-	ifWait        bool                         // labels if the transaction is in the waiting status, only used in await of (Read/Apply)
+	ifWaitR       bool                         // labels if the transaction is in the waiting status, only used in await of (Read/Apply)
+	ifWaitA       bool                         // labels if the transaction is in the waiting status, only used in await of (Read/Apply)
 	replyTo       int32                        // the same with ifWait, used only in read/apply phase
 }
 
@@ -932,7 +933,7 @@ func shareSameShard(tars []int32, cShardId int32) bool {
 // Check if read condition is satisfied
 func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 	//Only check trans which sets the ifWait attribute
-	if !curTrans.ifWait {
+	if !curTrans.ifWaitR {
 		return
 
 	}
@@ -987,7 +988,7 @@ func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 
 	})
 	//read condition satisfied, reset ifWait flag
-	curTrans.ifWait = false
+	curTrans.ifWaitR = false
 	//Prepare readOk msgs
 	readOk := &pb.ReadResp{
 		Res:     reads,
@@ -1023,7 +1024,7 @@ func (st *StateMachine) processRead(req *pb.Message) {
 	//Update deps locally according to Read request
 	curTrans.in_trans.Deps = readMsg.Deps
 	//update the outer transaction into waiting status, labeled by ifWait attribute
-	curTrans.ifWait = true
+	curTrans.ifWaitR = true
 	//update replyTo attribute of outer Trans
 	curTrans.replyTo = req.From
 	st.checkReadCondition(curTrans)
@@ -1168,7 +1169,7 @@ func depsToString(items []*pb.DepsItem) string {
 func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 	//Check if await condition satisfied
 	//Check commit await
-	if !curTrans.ifWait {
+	if !curTrans.ifWaitA {
 		return
 	}
 	curDeps := curTrans.in_trans.Deps.Items
@@ -1206,11 +1207,11 @@ func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 		err := st.writeRes(fWrites)
 		if err == nil {
 			curTrans.in_trans.St = pb.TranStatus_Applied
-			curTrans.ifWait = false
+			curTrans.ifWaitA = false
 			if len(fWrites) > 0 {
 				//log.Printf("Write %s on node%d, whose deps is %s", fWrites[0].Val, st.id, depsToString(curDeps))
 			}
-			log.Printf("[Applied :] Node %d Execution time is %s converting %s", st.id, curTrans.in_trans.ExT.String(), curTrans.in_trans.ExT.TimeStamp.String())
+			//log.Printf("[Applied :] Node %d Execution time is %s converting %s", st.id, curTrans.in_trans.ExT.String(), curTrans.in_trans.ExT.TimeStamp.String())
 			st.triggerCheckOnAll()
 			return
 		} else {
@@ -1243,7 +1244,7 @@ func (st *StateMachine) processApply(req *pb.Message) {
 	//Update deps of locally trans
 	curTrans.in_trans.Deps = applyMsg.DepsP
 	//update ifWait attribute of outer transaction
-	curTrans.ifWait = true
+	curTrans.ifWaitA = true
 	//update replyTo attribute of outer Trans
 	curTrans.replyTo = req.From
 

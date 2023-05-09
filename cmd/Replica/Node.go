@@ -346,7 +346,7 @@ func (ser *Server) performRPC() {
 
 				//TODO error handling here
 				_, err := node.client.SendReq(context.Background(), msg)
-				log.Printf("Send %s from Node%d to Node%d", msgTypeToString[msg.Type], ser.node.nodeId, msg.To)
+				//log.Printf("Send %s from Node%d to Node%d", msgTypeToString[msg.Type], ser.node.nodeId, msg.To)
 				if err != nil {
 					log.Printf(ERROR+" Could not use rpc on node %d with err %v", node.nodeId, err)
 					for j := 0; j < 5; j++ {
@@ -415,8 +415,8 @@ func main() {
 	//Create and init local server
 	localServer := &Server{
 		node:    cur,
-		inCh:    make(chan *pb.Message, 100),
-		outCh:   make(chan *pb.Message, 100),
+		inCh:    make(chan *pb.Message, 5000),
+		outCh:   make(chan *pb.Message, 5000),
 		peers:   make(map[int]*Node),
 		clients: make(map[string]*Node),
 		stateMachine: &StateMachine{
