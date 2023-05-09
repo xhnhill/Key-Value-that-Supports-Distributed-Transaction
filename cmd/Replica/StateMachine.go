@@ -1034,6 +1034,7 @@ func (st *StateMachine) processReadOk(req *pb.Message) {
 	readOk := &pb.ReadResp{}
 	proto.Unmarshal(req.Data, readOk)
 	curTrans := st.m_trans[readOk.TransId]
+	//TODO
 	fromShard := st.shardMap[req.From]
 	_, ok := curTrans.collectShards[fromShard]
 	if ok {
@@ -1393,7 +1394,7 @@ func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Mes
 				st.checkunAppliedTrans()
 			}
 			//TODO This function is only used in debug
-			st.checkunAppliedTrans()
+			//st.checkunAppliedTrans()
 		case val, ok := <-inCh:
 			if !ok {
 				log.Printf("The channel of the node has been closed, nodeId is %d", st.id)

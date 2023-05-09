@@ -54,11 +54,11 @@ func main() {
 					return err
 				}
 
-				results[idx] = val
+				results[idx+1] = val
 				return nil
 			})
 			if err != nil {
-				log.Printf("Failed to read key from DB %d: %v", idx, err)
+				log.Printf("Failed to read key from DB %d: %v", idx+1, err)
 			}
 		}
 		printResMap(results)
