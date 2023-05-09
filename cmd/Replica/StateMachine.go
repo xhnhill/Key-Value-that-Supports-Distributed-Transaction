@@ -1170,8 +1170,9 @@ func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 		if err == nil {
 			curTrans.in_trans.St = pb.TranStatus_Applied
 			if len(fWrites) > 0 {
-				log.Printf("Write %s on node%d, whose deps is %s", fWrites[0].Val, st.id, depsToString(curDeps))
+				//log.Printf("Write %s on node%d, whose deps is %s", fWrites[0].Val, st.id, depsToString(curDeps))
 			}
+			log.Printf("[Applied :] Node %d Execution time is %s", st.id, curTrans.in_trans.ExT.String())
 			st.triggerCheckOnAll()
 			return
 		} else {
@@ -1340,8 +1341,11 @@ func (pq *PriorityQueue) Pop() interface{} {
 func (st *StateMachine) checkunAppliedTrans() {
 	for i, _ := range st.m_trans {
 		if st.m_trans[i].in_trans.St != pb.TranStatus_Applied {
-			log.Printf(UNFINISHED+"On node%d the trans %s, current st is %s", st.id, st.m_trans[i].in_trans.Id,
+			log.Printf(UNFINISHED+" On node%d the trans %s, current st is %s", st.id, st.m_trans[i].in_trans.Id,
 				tranStatusToString[st.m_trans[i].in_trans.St])
+			//TODO Because here we just make a check
+			// Do not block too much IO
+			break
 		}
 	}
 }
@@ -1349,6 +1353,8 @@ func (st *StateMachine) checkunAppliedTrans() {
 // The reorder version that buffered the message
 func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Message) {
 	ticker := time.NewTicker(100 * time.Millisecond)
+	//TODO to be removed
+	logCt := 0
 	for {
 		select {
 		// This ticker is only used in this scope
@@ -1357,9 +1363,8 @@ func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Mes
 			now := time.Now()
 			for st.pq.Len() > 0 {
 				fir := st.pq[0]
-
-				minTime := now.Add(-1 * time.Second)
-				maxTime := now.Add(time.Second)
+				minTime := now.Add(-2 * time.Second)
+				maxTime := now.Add(-1 * time.Second)
 				recTime := fir.T0.TimeStamp.AsTime()
 				if recTime.After(maxTime) {
 					break
@@ -1368,6 +1373,24 @@ func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Mes
 				} else {
 					st.executeReq(heap.Pop(&st.pq).(*pb.Message))
 				}
+				/*
+					minTime := now.Add(-1 * time.Second)
+					maxTime := now.Add(time.Second)
+					recTime := fir.T0.TimeStamp.AsTime()
+					if recTime.After(maxTime) {
+						break
+					} else if recTime.Before(minTime) {
+						log.Printf(ERROR + "Out of scope time in buffered array")
+					} else {
+						st.executeReq(heap.Pop(&st.pq).(*pb.Message))
+					}
+
+				*/
+
+			}
+			logCt++
+			if logCt%10 == 0 {
+				st.checkunAppliedTrans()
 			}
 			//TODO This function is only used in debug
 			st.checkunAppliedTrans()

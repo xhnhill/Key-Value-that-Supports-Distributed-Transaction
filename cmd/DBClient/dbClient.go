@@ -75,12 +75,11 @@ func generateRandomTrans(clt *pb.NodeInfo) *pb.Trans {
 	var rKeys []string
 	var wKeys []string
 	var wVals []string
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 7; i++ {
 		rKeys = append(rKeys, "rk"+strconv.Itoa(i))
 		wKeys = append(wKeys, "rk"+strconv.Itoa(i))
-		wVals = append(wVals, "val "+strconv.Itoa(i)+genUUID())
-		wKeys = append(wKeys, "rk"+genUUID())
-		wVals = append(wVals, "val "+genUUID())
+		wVals = append(wVals, "val "+clt.Addr)
+
 	}
 	return generateTrans(rKeys, wKeys, wVals, clt)
 }
@@ -169,7 +168,7 @@ func (localServer *cltServer) fixedRead(clt *DbClient, ser pb.CoordinateClient) 
 	localServer.blockRead(rdTrans, ser)
 }
 func (localServer *cltServer) concurrentOp(clt *DbClient, ser pb.CoordinateClient) {
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 3; i++ {
 		go localServer.MassiveConcurrent(clt, ser)
 	}
 	time.Sleep(300 * time.Second)
@@ -198,7 +197,7 @@ func main() {
 	// calling part
 	clt := &DbClient{nodeinfo: pb.NodeInfo{Addr: *addr}}
 	ser := getServerClient(*server)
-	//localServer.concurrentOp(clt, ser)
-	localServer.fixedRead(clt, ser)
+	localServer.concurrentOp(clt, ser)
+	//localServer.fixedRead(clt, ser)
 
 }
