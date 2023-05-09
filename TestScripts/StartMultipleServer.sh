@@ -9,8 +9,8 @@ process5_command="./Servx -path=config/cl -self=config/5"
 process6_command="./Servx -path=config/cl -self=config/6"
 
 $process1_command &
-#$process2_command &
+$process2_command &
 $process3_command &
 $process4_command &
 $process5_command &
-$process6_command &
+#$process6_command &

@@ -705,7 +705,8 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 	//Update classical votes
 	curTrans.votes++
 	//update collectT proposed by PreAcceptOK
-	curTrans.collectT = copyTransTimestamp(curTrans.in_trans.T0)
+	//TODO modify bugs here
+	//curTrans.collectT = copyTransTimestamp(curTrans.in_trans.T0)
 	if CompareTimestamp(preAcceptOk.T, curTrans.collectT) {
 		curTrans.collectT = copyTransTimestamp(preAcceptOk.T)
 	}
@@ -719,6 +720,7 @@ func (st *StateMachine) processPreAcceptOk(req *pb.Message) {
 		if curTrans.fVotes >= curTrans.config.fastSize {
 			//perform the fast path logic
 			curTrans.in_trans.St = pb.TranStatus_Commited
+			st.triggerCheckOnAll()
 			//update curTrans's execution time
 			curTrans.in_trans.ExT = curTrans.in_trans.T0
 			//update T in statemachine
@@ -827,6 +829,7 @@ func (st *StateMachine) checkAcceptOkVotes(curTrans *Transaction) {
 		st.sendMsgs(msgs)
 		//Update local status to committed
 		curTrans.in_trans.St = pb.TranStatus_Commited
+		st.triggerCheckOnAll()
 		//TODO Execute the Ecution Protocol
 		st.sendReads(curTrans, deps)
 
@@ -983,6 +986,8 @@ func (st *StateMachine) checkReadCondition(curTrans *Transaction) {
 		return nil
 
 	})
+	//read condition satisfied, reset ifWait flag
+	curTrans.ifWait = false
 	//Prepare readOk msgs
 	readOk := &pb.ReadResp{
 		Res:     reads,
@@ -1091,7 +1096,18 @@ func (st *StateMachine) processReadOk(req *pb.Message) {
 	//and return results to clients
 	if len(curTrans.collectShards) == len(curTrans.in_trans.RelatedShards) {
 		//Label on the managed node, the status as applied
-		curTrans.in_trans.St = pb.TranStatus_Applied
+		//TODO Only being labeled when current node is not in the trans related node
+		ifIn := false
+		for i := 0; i < len(curTrans.in_trans.RelatedReplicas); i++ {
+			if curTrans.in_trans.RelatedReplicas[i] == st.id {
+				ifIn = true
+				break
+			}
+		}
+		if !ifIn {
+			curTrans.in_trans.St = pb.TranStatus_Applied
+			st.triggerCheckOnAll()
+		}
 		//Return results to clients
 		finalRes := &pb.FinalRes{
 			CId: curTrans.in_trans.CId,
@@ -1190,10 +1206,11 @@ func (st *StateMachine) checkApplyCondition(curTrans *Transaction) {
 		err := st.writeRes(fWrites)
 		if err == nil {
 			curTrans.in_trans.St = pb.TranStatus_Applied
+			curTrans.ifWait = false
 			if len(fWrites) > 0 {
 				//log.Printf("Write %s on node%d, whose deps is %s", fWrites[0].Val, st.id, depsToString(curDeps))
 			}
-			log.Printf("[Applied :] Node %d Execution time is %s", st.id, curTrans.in_trans.ExT.String())
+			log.Printf("[Applied :] Node %d Execution time is %s converting %s", st.id, curTrans.in_trans.ExT.String(), curTrans.in_trans.ExT.TimeStamp.String())
 			st.triggerCheckOnAll()
 			return
 		} else {
@@ -1212,6 +1229,11 @@ func (st *StateMachine) processApply(req *pb.Message) {
 	if !ok {
 		st.registerTrans(Witnessed, applyMsg.Trans)
 		curTrans = st.w_trans[applyMsg.Trans.Id]
+	} else {
+		if curTrans.in_trans.St >= pb.TranStatus_Applied {
+			log.Printf("Repeated Apply message from node %d", req.From)
+			return
+		}
 	}
 	if curTrans.in_trans.St > applyMsg.Trans.St {
 		return
@@ -1274,7 +1296,6 @@ func (st *StateMachine) executeReq(req *pb.Message) {
 		st.processReadOk(req)
 	case pb.MsgType_Apply:
 		log.Printf("Receive Apply Msg from %d", req.From)
-
 		st.processApply(req)
 	case pb.MsgType_Recover:
 		log.Printf("Receive req")
@@ -1359,11 +1380,34 @@ func (pq *PriorityQueue) Pop() interface{} {
 	*pq = old[0 : n-1]
 	return item
 }
+
+// TODO only for test
+func (st *StateMachine) findMinTrans() string {
+	tp := st.generateTimestamp()
+	var s string
+	for i, _ := range st.m_trans {
+		ct := st.m_trans[i]
+		if ct.in_trans.St == pb.TranStatus_Commited {
+			ntp := ct.in_trans.ExT
+			if CompareTimestamp(tp, ntp) {
+				tp = copyTransTimestamp(ntp)
+				s = ct.in_trans.Id
+			}
+		}
+	}
+	return s
+}
 func (st *StateMachine) checkunAppliedTrans() {
 	for i, _ := range st.m_trans {
 		if st.m_trans[i].in_trans.St != pb.TranStatus_Applied {
 			log.Printf(UNFINISHED+" On node%d the trans %s, current st is %s", st.id, st.m_trans[i].in_trans.Id,
 				tranStatusToString[st.m_trans[i].in_trans.St])
+			if i == "asdw" {
+				st.findMinTrans()
+			}
+
+			//TODO tmp for debug
+			st.triggerCheckOnAll()
 			//TODO Because here we just make a check
 			// Do not block too much IO
 			break
@@ -1410,7 +1454,7 @@ func (st *StateMachine) reoderMainLoop(inCh chan *pb.Message, outCh chan *pb.Mes
 
 			}
 			logCt++
-			if logCt%10 == 0 {
+			if logCt%100 == 0 {
 				st.checkunAppliedTrans()
 			}
 			//TODO This function is only used in debug

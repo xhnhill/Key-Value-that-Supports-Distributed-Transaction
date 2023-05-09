@@ -168,7 +168,7 @@ func (localServer *cltServer) fixedRead(clt *DbClient, ser pb.CoordinateClient) 
 	localServer.blockRead(rdTrans, ser)
 }
 func (localServer *cltServer) concurrentOp(clt *DbClient, ser pb.CoordinateClient) {
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 3; i++ {
 		go localServer.MassiveConcurrent(clt, ser)
 	}
 	time.Sleep(300 * time.Second)
